@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# build / test artifacts
+dist/
+build/
+coverage/
+
+# editor / IDE
+.vscode/
+.idea/
+.fleet/
+*.swp
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# logs and env
+*.log
+.env
+.env.local
+.env.*.local
+
+# Claude Code local state (per-machine permissions, etc.)
+.claude/
+
+# Superpowers brainstorming companion files
+.superpowers/

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Factorio Blueprint Decoder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1>Factorio Blueprint Decoder</h1>
+    <p class="subtitle">Вставь строку чертежа — получишь JSON.</p>
+  </header>
+
+  <main id="app" class="content">
+    <!-- populated by src/app.js -->
+  </main>
+
+  <footer class="site-footer">
+    <p>Работает локально в браузере. Строка никуда не отправляется.</p>
+  </footer>
+
+  <script src="vendor/pako_inflate.min.js"></script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
