@@ -39,7 +39,20 @@ const messages = {
     'errors.BAD_JSON': 'Corrupted JSON payload',
     'errors.UNKNOWN': 'Unexpected error',
 
-    'clipboard.failure': 'Failed to copy to clipboard.'
+    'clipboard.failure': 'Failed to copy to clipboard.',
+
+    'buttons.encode': 'Encode',
+    'buttons.cancel': 'Cancel',
+    'buttons.close': 'Close',
+    'buttons.copyResult': 'Copy result',
+
+    'editor.title': 'Edit JSON',
+    'result.title': 'Blueprint string',
+
+    'errors.BAD_JSON_INPUT': 'Invalid JSON in editor',
+    'errors.INTERNAL_NO_DEFLATE': 'Internal error: deflate function missing',
+    'errors.NOT_AN_OBJECT': 'Encoder expected an object at the root',
+    'errors.BAD_PAYLOAD': 'JSON cannot be serialised (circular references?)'
   },
   ru: {
     'header.title': 'Декодер чертежей Factorio',
@@ -75,7 +88,20 @@ const messages = {
     'errors.BAD_JSON': 'Повреждённый JSON',
     'errors.UNKNOWN': 'Неизвестная ошибка',
 
-    'clipboard.failure': 'Не удалось скопировать в буфер обмена.'
+    'clipboard.failure': 'Не удалось скопировать в буфер обмена.',
+
+    'buttons.encode': 'Кодировать',
+    'buttons.cancel': 'Отмена',
+    'buttons.close': 'Закрыть',
+    'buttons.copyResult': 'Копировать строку',
+
+    'editor.title': 'Редактирование JSON',
+    'result.title': 'Строка чертежа',
+
+    'errors.BAD_JSON_INPUT': 'Невалидный JSON в редакторе',
+    'errors.INTERNAL_NO_DEFLATE': 'Внутренняя ошибка: не передан deflate',
+    'errors.NOT_AN_OBJECT': 'Кодер ожидает объект в корне',
+    'errors.BAD_PAYLOAD': 'JSON невозможно сериализовать (циклические ссылки?)'
   }
 }
 

@@ -1,4 +1,5 @@
 import { decode, DecodeError } from './decode.js'
+import { encode, EncodeError } from './encode.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
 
 setLocale(detectLocale())
@@ -11,7 +12,11 @@ const state = {
   result: null,       // DecodeResult
   error: null,        // already-localised string
   view: 'json',       // 'json' | 'tree'
-  selectedPath: []    // [] = root
+  selectedPath: [],   // [] = root
+  editing: false,
+  draft: '',
+  encodeResult: null,
+  encodeError: null
 }
 
 function render() {
@@ -81,6 +86,10 @@ function onClear() {
   state.input = ''
   state.result = null
   state.error = null
+  state.editing = false
+  state.draft = ''
+  state.encodeResult = null
+  state.encodeError = null
   render()
 }
 
@@ -102,6 +111,17 @@ function getNodeAtPath(result, path) {
 
 function arraysEqual(a, b) {
   return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
+// What we encode for the current selection. For book children we strip
+// the `index` field — it is a position marker inside the parent and is
+// meaningless in a standalone blueprint string.
+function selectionForEncode(result, path) {
+  const node = getNodeAtPath(result, path)
+  if (path.length === 0) return result.json
+  // node.json is the wrapper, e.g. { index: 0, blueprint: {...} } — clone and drop `index`.
+  const { index: _drop, ...rest } = node.json
+  return rest
 }
 
 function renderDecoded(s) {
@@ -132,11 +152,31 @@ function renderDecoded(s) {
       </div>
     ` : ''}
     ${s.view === 'json' || !showTree ? `
-      <pre class="json">${escapeHtml(jsonText)}</pre>
-      <div class="actions">
-        <button id="btn-copy">${escapeHtml(t('buttons.copy'))}</button>
-        <button id="btn-download">${escapeHtml(t('buttons.download'))}</button>
-      </div>
+      ${s.editing ? `
+        <textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>
+        <div class="actions">
+          <button id="btn-encode" class="primary">${escapeHtml(t('buttons.encode'))}</button>
+          <button id="btn-cancel">${escapeHtml(t('buttons.cancel'))}</button>
+        </div>
+      ` : `
+        <pre class="json">${escapeHtml(jsonText)}</pre>
+        <div class="actions">
+          <button id="btn-edit-json">${escapeHtml(t('buttons.edit'))}</button>
+          <button id="btn-copy">${escapeHtml(t('buttons.copy'))}</button>
+          <button id="btn-download">${escapeHtml(t('buttons.download'))}</button>
+        </div>
+      `}
+      ${s.encodeError ? `<p class="error">${escapeHtml(s.encodeError)}</p>` : ''}
+      ${s.encodeResult !== null ? `
+        <div class="result-panel">
+          <div class="result-header">${escapeHtml(t('result.title'))}</div>
+          <textarea readonly class="result-text">${escapeHtml(s.encodeResult)}</textarea>
+          <div class="actions">
+            <button id="btn-copy-result">${escapeHtml(t('buttons.copyResult'))}</button>
+            <button id="btn-close-result">${escapeHtml(t('buttons.close'))}</button>
+          </div>
+        </div>
+      ` : ''}
     ` : `
       ${renderTree(r.children, s.selectedPath)}
     `}
@@ -164,12 +204,20 @@ function renderTree(children, selectedPath) {
 function wireDecoded() {
   document.getElementById('btn-edit')?.addEventListener('click', () => {
     state.phase = 'empty'
+    state.editing = false
+    state.draft = ''
+    state.encodeResult = null
+    state.encodeError = null
     render()
     document.getElementById('bp-input')?.focus()
   })
   document.querySelectorAll('.tab').forEach(el => {
     el.addEventListener('click', () => {
       state.view = el.dataset.view
+      state.editing = false
+      state.draft = ''
+      state.encodeResult = null
+      state.encodeError = null
       render()
     })
   })
@@ -178,11 +226,43 @@ function wireDecoded() {
       const path = el.dataset.path.split(',').map(Number)
       state.selectedPath = path
       state.view = 'json'
+      state.editing = false
+      state.draft = ''
+      state.encodeResult = null
+      state.encodeError = null
       render()
     })
   })
   document.getElementById('btn-copy')?.addEventListener('click', onCopy)
   document.getElementById('btn-download')?.addEventListener('click', onDownload)
+  // View → Edit
+  document.getElementById('btn-edit-json')?.addEventListener('click', () => {
+    state.editing = true
+    state.encodeResult = null
+    state.encodeError = null
+    const node = selectionForEncode(state.result, state.selectedPath)
+    state.draft = JSON.stringify(node, null, 2)
+    render()
+    document.getElementById('json-editor')?.focus()
+  })
+  // Edit → keep state.draft in sync as the user types
+  document.getElementById('json-editor')?.addEventListener('input', e => {
+    state.draft = e.target.value
+  })
+  document.getElementById('btn-encode')?.addEventListener('click', onEncode)
+  document.getElementById('btn-cancel')?.addEventListener('click', () => {
+    state.editing = false
+    state.draft = ''
+    state.encodeResult = null
+    state.encodeError = null
+    render()
+  })
+  document.getElementById('btn-copy-result')?.addEventListener('click', onCopyResult)
+  document.getElementById('btn-close-result')?.addEventListener('click', () => {
+    state.encodeResult = null
+    state.encodeError = null
+    render()
+  })
 }
 
 async function onCopy() {
@@ -213,6 +293,45 @@ function onDownload() {
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+}
+
+function onEncode() {
+  state.encodeResult = null
+  state.encodeError = null
+
+  let parsed
+  try {
+    parsed = JSON.parse(state.draft)
+  } catch {
+    state.encodeError = t('errors.BAD_JSON_INPUT')
+    render()
+    return
+  }
+
+  try {
+    state.encodeResult = encode(parsed, { deflate: window.pako.deflate })
+  } catch (e) {
+    if (e instanceof EncodeError) {
+      state.encodeError = t('errors.' + e.code)
+    } else {
+      state.encodeError = `${t('errors.UNKNOWN')}: ${e.message}`
+    }
+  }
+  render()
+}
+
+async function onCopyResult() {
+  const text = state.encodeResult ?? ''
+  try {
+    await navigator.clipboard.writeText(text)
+    const btn = document.getElementById('btn-copy-result')
+    if (!btn) return
+    const old = btn.textContent
+    btn.textContent = t('buttons.copied')
+    setTimeout(() => { btn.textContent = old }, 1200)
+  } catch {
+    alert(t('clipboard.failure'))
+  }
 }
 
 // Wire the locale switch (the static markup is added in index.html — see Task 4).
