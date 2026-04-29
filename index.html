@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,8 +8,13 @@
 </head>
 <body>
   <header class="site-header">
+    <div class="locale-switch">
+      <span data-locale="en">EN</span>
+      <span class="sep">·</span>
+      <span data-locale="ru">RU</span>
+    </div>
     <h1>Factorio Blueprint Decoder</h1>
-    <p class="subtitle">Вставь строку чертежа — получишь JSON.</p>
+    <p class="subtitle">Paste a blueprint string — get the JSON.</p>
   </header>
 
   <main id="app" class="content">
@@ -17,7 +22,11 @@
   </main>
 
   <footer class="site-footer">
-    <p>Работает локально в браузере. Строка никуда не отправляется.</p>
+    <p>
+      <span class="footer-note">Runs locally in your browser. The string is never sent anywhere.</span>
+      <span class="sep">·</span>
+      <a href="https://github.com/kaferi/factorio-bp" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </p>
   </footer>
 
   <script src="vendor/pako_inflate.min.js"></script>

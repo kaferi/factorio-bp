@@ -11,20 +11,30 @@ const opts = { inflate }
 const here = dirname(fileURLToPath(import.meta.url))
 const fixture = name => readFileSync(join(here, '__fixtures__', name), 'utf8')
 
+function expectDecodeError(fn, code) {
+  let err
+  try { fn() } catch (e) { err = e }
+  expect(err).toBeInstanceOf(DecodeError)
+  expect(err.code).toBe(code)
+}
+
 describe('decode — basic validation', () => {
   it('throws DecodeError on empty input', () => {
-    expect(() => decode('', opts)).toThrow(DecodeError)
-    expect(() => decode('   ', opts)).toThrow(/Пустая строка/)
+    expectDecodeError(() => decode('', opts), 'EMPTY_INPUT')
+    expectDecodeError(() => decode('   ', opts), 'EMPTY_INPUT')
   })
 
   it('throws DecodeError when prefix is not "0"', () => {
-    expect(() => decode('1abcdef', opts)).toThrow(/начинаться с «0»/)
+    expectDecodeError(() => decode('1abcdef', opts), 'BAD_PREFIX')
   })
 
-  it('DecodeError is a subclass of Error', () => {
-    const e = new DecodeError('x')
+  it('DecodeError is a subclass of Error and exposes a code', () => {
+    const e = new DecodeError('BAD_PREFIX')
     expect(e).toBeInstanceOf(Error)
     expect(e.name).toBe('DecodeError')
+    expect(e.code).toBe('BAD_PREFIX')
+    // English default message — useful for raw `console.error` output
+    expect(typeof e.message).toBe('string')
   })
 })
 
@@ -38,15 +48,15 @@ describe('decode — pipeline', () => {
   })
 
   it('throws DecodeError on corrupt base64', () => {
-    expect(() => decode(fixture('corrupt-base64.txt'), opts)).toThrow(/base64/i)
+    expectDecodeError(() => decode(fixture('corrupt-base64.txt'), opts), 'BAD_BASE64')
   })
 
   it('throws DecodeError on truncated input (zlib failure)', () => {
-    expect(() => decode(fixture('truncated.txt'), opts)).toThrow(/zlib/i)
+    expectDecodeError(() => decode(fixture('truncated.txt'), opts), 'BAD_ZLIB')
   })
 
   it('throws DecodeError on broken JSON payload', () => {
-    expect(() => decode(fixture('bad-json.txt'), opts)).toThrow(/JSON/i)
+    expectDecodeError(() => decode(fixture('bad-json.txt'), opts), 'BAD_JSON')
   })
 })
 
