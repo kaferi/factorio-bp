@@ -1,5 +1,6 @@
 import { decode, DecodeError } from './decode.js'
 import { encode, EncodeError } from './encode.js'
+import { validate, ValidationError } from './validate.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
 
 setLocale(detectLocale())
@@ -304,6 +305,18 @@ function onEncode() {
     parsed = JSON.parse(state.draft)
   } catch {
     state.encodeError = t('errors.BAD_JSON_INPUT')
+    render()
+    return
+  }
+
+  try {
+    validate(parsed)
+  } catch (e) {
+    if (e instanceof ValidationError) {
+      state.encodeError = t('errors.' + e.code, e.params)
+    } else {
+      state.encodeError = `${t('errors.UNKNOWN')}: ${e.message}`
+    }
     render()
     return
   }

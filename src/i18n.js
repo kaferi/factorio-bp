@@ -52,7 +52,14 @@ const messages = {
     'errors.BAD_JSON_INPUT': 'Invalid JSON in editor',
     'errors.INTERNAL_NO_DEFLATE': 'Internal error: deflate function missing',
     'errors.NOT_AN_OBJECT': 'Encoder expected an object at the root',
-    'errors.BAD_PAYLOAD': 'JSON cannot be serialised (circular references?)'
+    'errors.BAD_PAYLOAD': 'JSON cannot be serialised (circular references?)',
+
+    'errors.MISSING_ROOT_KEY': 'JSON is not a Factorio blueprint at {path} (expected blueprint, blueprint_book, deconstruction_planner, or upgrade_planner)',
+    'errors.INNER_NOT_OBJECT': 'Field {path} must be an object',
+    'errors.WRONG_ITEM_VALUE': 'Field {path}.item must be "{expected}", got "{actual}"',
+    'errors.BLUEPRINTS_NOT_ARRAY': 'Field {path} must be an array',
+    'errors.ENTITIES_NOT_ARRAY': 'Field {path} must be an array',
+    'errors.ENTITY_MALFORMED': 'Entity at {path} is malformed (missing name or position)'
   },
   ru: {
     'header.title': 'Декодер чертежей Factorio',
@@ -101,7 +108,14 @@ const messages = {
     'errors.BAD_JSON_INPUT': 'Невалидный JSON в редакторе',
     'errors.INTERNAL_NO_DEFLATE': 'Внутренняя ошибка: не передан deflate',
     'errors.NOT_AN_OBJECT': 'Кодер ожидает объект в корне',
-    'errors.BAD_PAYLOAD': 'JSON невозможно сериализовать (циклические ссылки?)'
+    'errors.BAD_PAYLOAD': 'JSON невозможно сериализовать (циклические ссылки?)',
+
+    'errors.MISSING_ROOT_KEY': 'JSON не похож на чертёж Factorio в {path} (ожидается blueprint, blueprint_book, deconstruction_planner или upgrade_planner)',
+    'errors.INNER_NOT_OBJECT': 'Поле {path} должно быть объектом',
+    'errors.WRONG_ITEM_VALUE': 'Поле {path}.item должно быть «{expected}», а не «{actual}»',
+    'errors.BLUEPRINTS_NOT_ARRAY': 'Поле {path} должно быть массивом',
+    'errors.ENTITIES_NOT_ARRAY': 'Поле {path} должно быть массивом',
+    'errors.ENTITY_MALFORMED': 'Сущность {path} некорректна (нет name или position)'
   }
 }
 
