@@ -115,3 +115,28 @@ describe('decode — unknown root', () => {
     expect(r.children).toEqual([])
   })
 })
+
+describe('decode — real-world large book (regression smoke)', () => {
+  // Real Space Age library. Covers all four kinds, 4 levels of nesting.
+  // Numbers are exact and serve as a regression check on the decoder.
+  it('decodes the real large book without errors and matches expected shape', () => {
+    const r = decode(fixture('real-large-book.txt'), opts)
+    expect(r.kind).toBe('blueprint-book')
+    expect(r.versionString).toBe('2.0.76.0')
+    expect(r.children).toHaveLength(82)
+
+    const byKind = r.children.reduce((acc, c) => {
+      acc[c.kind] = (acc[c.kind] || 0) + 1
+      return acc
+    }, {})
+    expect(byKind).toEqual({
+      'blueprint-book': 16,
+      'blueprint': 53,
+      'deconstruction-planner': 6,
+      'upgrade-planner': 7
+    })
+
+    const maxDepth = Math.max(...r.children.map(c => c.path.length))
+    expect(maxDepth).toBe(4)
+  })
+})
