@@ -2,6 +2,7 @@ import { decode, DecodeError } from './decode.js'
 import { encode, EncodeError } from './encode.js'
 import { validate, ValidationError } from './validate.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
+import { stripFactorioTags } from './labels.js'
 
 setLocale(detectLocale())
 
@@ -17,7 +18,8 @@ const state = {
   editing: false,
   draft: '',
   encodeResult: null,
-  encodeError: null
+  encodeError: null,
+  searchQuery: ''
 }
 
 function render() {
@@ -65,6 +67,7 @@ function onDecode() {
     state.error = null
     state.view = 'json'
     state.selectedPath = []
+    state.searchQuery = ''
   } catch (e) {
     state.phase = 'error'
     state.error = localiseError(e)
@@ -91,6 +94,7 @@ function onClear() {
   state.draft = ''
   state.encodeResult = null
   state.encodeError = null
+  state.searchQuery = ''
   render()
 }
 
@@ -132,7 +136,7 @@ function renderDecoded(s) {
     `<strong>${escapeHtml(r.kind)}</strong>`,
     r.children.length > 0 ? escapeHtml(t('summary.entriesCount', { count: r.children.length })) : null,
     r.versionString ? escapeHtml(t('summary.version', { ver: r.versionString })) : null,
-    r.label ? `«${escapeHtml(r.label)}»` : null
+    (r.label && stripFactorioTags(r.label)) ? `«${escapeHtml(stripFactorioTags(r.label))}»` : null
   ].filter(Boolean).join(' · ')
 
   const showTree = r.children.length > 0
@@ -179,27 +183,64 @@ function renderDecoded(s) {
         </div>
       ` : ''}
     ` : `
-      ${renderTree(r.children, s.selectedPath)}
+      ${renderTree(r.children, s.selectedPath, s.searchQuery)}
     `}
   `
 }
 
-function renderTree(children, selectedPath) {
+function labelMatches(label, query) {
+  if (!query) return true
+  const q = query.toLowerCase()
+  const raw = (label || '').toLowerCase()
+  const stripped = stripFactorioTags(label || '').toLowerCase()
+  return raw.includes(q) || stripped.includes(q)
+}
+
+function visibleChildren(children, query) {
+  if (!query) return children
+  const visible = new Set()
+  const pathKey = path => path.join(',')
+  for (const c of children) {
+    if (labelMatches(c.label, query)) {
+      visible.add(pathKey(c.path))
+      for (let i = 1; i < c.path.length; i++) {
+        visible.add(pathKey(c.path.slice(0, i)))
+      }
+    }
+  }
+  return children.filter(c => visible.has(pathKey(c.path)))
+}
+
+function renderTree(children, selectedPath, query) {
   // v1 simplification vs spec: render the flat list with depth-based
   // indentation instead of expand/collapse toggles. For typical books
   // (5-30 single-level entries) this reads cleanly; nesting is rare.
   // Add per-book toggles here if deeply-nested books become common.
-  const items = children.map(c => `
+  const filtered = visibleChildren(children, query)
+  const items = filtered.map(c => `
     <li>
       <div class="tree-node ${arraysEqual(c.path, selectedPath) ? 'selected' : ''}"
            style="padding-left: ${c.path.length * 14}px"
            data-path="${c.path.join(',')}">
-        ${escapeHtml(c.label || t('treeNode.untitled'))}
+        ${escapeHtml(stripFactorioTags(c.label) || t('treeNode.untitled'))}
         <span class="badge">${escapeHtml(c.kind)}</span>
       </div>
     </li>
   `).join('')
-  return `<ul class="tree">${items}</ul>`
+
+  const treeBlock = filtered.length === 0
+    ? `<p class="empty-tree">${escapeHtml(t('search.noMatches'))}</p>`
+    : `<ul class="tree">${items}</ul>`
+
+  return `
+    <input
+      class="tree-search"
+      type="text"
+      placeholder="${escapeHtml(t('search.placeholder'))}"
+      value="${escapeHtml(query)}"
+    >
+    ${treeBlock}
+  `
 }
 
 function wireDecoded() {
@@ -233,6 +274,16 @@ function wireDecoded() {
       state.encodeError = null
       render()
     })
+  })
+  document.querySelector('.tree-search')?.addEventListener('input', e => {
+    const cursor = e.target.selectionStart
+    state.searchQuery = e.target.value
+    render()
+    const fresh = document.querySelector('.tree-search')
+    if (fresh) {
+      fresh.focus()
+      fresh.setSelectionRange(cursor, cursor)
+    }
   })
   document.getElementById('btn-copy')?.addEventListener('click', onCopy)
   document.getElementById('btn-download')?.addEventListener('click', onDownload)

@@ -209,3 +209,26 @@ textarea.json-editor {
   background: #fafafa;
   resize: vertical;
 }
+
+input.tree-search {
+  width: 100%;
+  padding: 6px 10px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  border: 1px solid #d0d0d5;
+  border-radius: 6px;
+  font-family: inherit;
+}
+input.tree-search:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+p.empty-tree {
+  color: #888;
+  font-size: 13px;
+  padding: 12px 4px;
+  margin: 0;
+}

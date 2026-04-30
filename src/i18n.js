@@ -59,7 +59,10 @@ const messages = {
     'errors.WRONG_ITEM_VALUE': 'Field {path}.item must be "{expected}", got "{actual}"',
     'errors.BLUEPRINTS_NOT_ARRAY': 'Field {path} must be an array',
     'errors.ENTITIES_NOT_ARRAY': 'Field {path} must be an array',
-    'errors.ENTITY_MALFORMED': 'Entity at {path} is malformed (missing name or position)'
+    'errors.ENTITY_MALFORMED': 'Entity at {path} is malformed (missing name or position)',
+
+    'search.placeholder': 'Search blueprints…',
+    'search.noMatches': 'No matches'
   },
   ru: {
     'header.title': 'Декодер чертежей Factorio',
@@ -115,7 +118,10 @@ const messages = {
     'errors.WRONG_ITEM_VALUE': 'Поле {path}.item должно быть «{expected}», а не «{actual}»',
     'errors.BLUEPRINTS_NOT_ARRAY': 'Поле {path} должно быть массивом',
     'errors.ENTITIES_NOT_ARRAY': 'Поле {path} должно быть массивом',
-    'errors.ENTITY_MALFORMED': 'Сущность {path} некорректна (нет name или position)'
+    'errors.ENTITY_MALFORMED': 'Сущность {path} некорректна (нет name или position)',
+
+    'search.placeholder': 'Поиск чертежей…',
+    'search.noMatches': 'Ничего не найдено'
   }
 }
 
