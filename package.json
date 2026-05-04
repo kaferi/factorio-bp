@@ -6,7 +6,8 @@
   "description": "Online tool that decodes Factorio blueprint strings into JSON",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "icons:update": "node scripts/build-icons-manifest.mjs"
   },
   "devDependencies": {
     "pako": "^2.1.0",

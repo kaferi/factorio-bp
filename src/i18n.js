@@ -13,6 +13,8 @@ const messages = {
     'input.placeholder': 'Paste a Factorio blueprint string here (starts with «0»)…',
 
     'buttons.decode': 'Decode',
+    'buttons.decoding': 'Decoding…',
+    'buttons.encoding': 'Encoding…',
     'buttons.paste': 'Paste',
     'buttons.clear': 'Clear',
     'buttons.edit': 'Edit',
@@ -72,6 +74,8 @@ const messages = {
     'input.placeholder': 'Вставь сюда строку чертежа Factorio (начинается с «0»)…',
 
     'buttons.decode': 'Декодировать',
+    'buttons.decoding': 'Декодирую…',
+    'buttons.encoding': 'Кодирую…',
     'buttons.paste': 'Вставить',
     'buttons.clear': 'Очистить',
     'buttons.edit': 'Изменить',

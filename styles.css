@@ -232,3 +232,35 @@ p.empty-tree {
   padding: 12px 4px;
   margin: 0;
 }
+
+img.bp-icon {
+  display: inline-block;
+  height: 1.1em;
+  width: auto;
+  vertical-align: -0.2em;
+  margin: 0 1px;
+}
+.tree-node img.bp-icon { height: 1em; vertical-align: -0.15em; }
+.summary img.bp-icon { height: 1.05em; vertical-align: -0.18em; }
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+button:disabled:hover { background: #fff; }
+button.primary:disabled:hover { background: #2563eb; }
+
+.spinner {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: -0.15em;
+  margin-right: 6px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

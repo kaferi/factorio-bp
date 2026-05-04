@@ -3,6 +3,7 @@ import { encode, EncodeError } from './encode.js'
 import { validate, ValidationError } from './validate.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
 import { stripFactorioTags } from './labels.js'
+import { renderLabelWithIconsHtml, renderIconsArrayHtml } from './icons.js'
 
 setLocale(detectLocale())
 
@@ -19,7 +20,8 @@ const state = {
   draft: '',
   encodeResult: null,
   encodeError: null,
-  searchQuery: ''
+  searchQuery: '',
+  busy: false       // a heavy synchronous op (decode / encode) is running
 }
 
 function render() {
@@ -29,21 +31,26 @@ function render() {
     return
   }
   // empty or error — show input form
+  const decodeBtn = state.busy
+    ? `<button id="btn-decode" class="primary" disabled><span class="spinner"></span>${escapeHtml(t('buttons.decoding'))}</button>`
+    : `<button id="btn-decode" class="primary">${escapeHtml(t('buttons.decode'))}</button>`
   root.innerHTML = `
-    <textarea id="bp-input" placeholder="${escapeHtml(t('input.placeholder'))}">${escapeHtml(state.input)}</textarea>
+    <textarea id="bp-input" placeholder="${escapeHtml(t('input.placeholder'))}" ${state.busy ? 'disabled' : ''}>${escapeHtml(state.input)}</textarea>
     <div class="btn-row">
-      <button id="btn-decode" class="primary">${escapeHtml(t('buttons.decode'))}</button>
-      <button id="btn-paste">${escapeHtml(t('buttons.paste'))}</button>
-      <button id="btn-clear">${escapeHtml(t('buttons.clear'))}</button>
+      ${decodeBtn}
+      <button id="btn-paste" ${state.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.paste'))}</button>
+      <button id="btn-clear" ${state.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.clear'))}</button>
     </div>
     ${state.phase === 'error' ? `<p class="error">${escapeHtml(state.error || '')}</p>` : ''}
   `
-  document.getElementById('btn-decode').addEventListener('click', onDecode)
-  document.getElementById('btn-paste').addEventListener('click', onPaste)
-  document.getElementById('btn-clear').addEventListener('click', onClear)
-  document.getElementById('bp-input').addEventListener('input', e => {
-    state.input = e.target.value
-  })
+  if (!state.busy) {
+    document.getElementById('btn-decode').addEventListener('click', onDecode)
+    document.getElementById('btn-paste').addEventListener('click', onPaste)
+    document.getElementById('btn-clear').addEventListener('click', onClear)
+    document.getElementById('bp-input').addEventListener('input', e => {
+      state.input = e.target.value
+    })
+  }
 }
 
 function escapeHtml(s) {
@@ -59,7 +66,23 @@ function localiseError(e) {
   return `${t('errors.UNKNOWN')}: ${e.message}`
 }
 
-function onDecode() {
+// Yield to the browser for one paint cycle so the UI can show the
+// disabled / spinner state before we run the synchronous heavy work.
+function nextPaint() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    } else {
+      setTimeout(resolve, 0)
+    }
+  })
+}
+
+async function onDecode() {
+  if (state.busy) return
+  state.busy = true
+  render()
+  await nextPaint()
   try {
     const result = decode(state.input, { inflate: window.pako.inflate })
     state.phase = 'decoded'
@@ -71,6 +94,8 @@ function onDecode() {
   } catch (e) {
     state.phase = 'error'
     state.error = localiseError(e)
+  } finally {
+    state.busy = false
   }
   render()
 }
@@ -118,6 +143,34 @@ function arraysEqual(a, b) {
   return a.length === b.length && a.every((v, i) => v === b[i])
 }
 
+// Read the `icons[]` array for a wrapper or root blueprint object —
+// the structural icon hint Factorio attaches to a blueprint, separate
+// from rich-text tags in the label. Returns [] if the wrapper does
+// not carry any.
+function innerIconsArr(wrapperOrJson) {
+  if (!wrapperOrJson || typeof wrapperOrJson !== 'object') return []
+  const inner = wrapperOrJson.blueprint
+    ?? wrapperOrJson.blueprint_book
+    ?? wrapperOrJson.deconstruction_planner
+    ?? wrapperOrJson.upgrade_planner
+    ?? wrapperOrJson
+  return Array.isArray(inner?.icons) ? inner.icons : []
+}
+
+// Render a label as HTML, mixing rich-text tag icons (from the label
+// string itself) and structural icons (from the JSON `icons[]` array).
+// If the label contains rich-text tags, we trust them and skip the
+// `icons[]` array (otherwise icons get duplicated). Otherwise, we
+// prepend `icons[]` icons before the plain text.
+function renderLabelAndIconsHtml(label, iconsArr) {
+  const hasRichTag = typeof label === 'string' && /\[[a-z][a-z0-9-]*=[^\]]+\]/i.test(label)
+  if (hasRichTag) return renderLabelWithIconsHtml(label)
+  const iconsHtml = renderIconsArrayHtml(iconsArr)
+  const textHtml = label ? escapeHtml(stripFactorioTags(label)) : ''
+  if (iconsHtml && textHtml) return `${iconsHtml} ${textHtml}`
+  return iconsHtml || textHtml
+}
+
 // What we encode for the current selection. For book children we strip
 // the `index` field — it is a position marker inside the parent and is
 // meaningless in a standalone blueprint string.
@@ -132,11 +185,12 @@ function selectionForEncode(result, path) {
 function renderDecoded(s) {
   const r = s.result
   const inputPreview = s.input.length > 80 ? s.input.slice(0, 80) + '…' : s.input
+  const rootLabelHtml = renderLabelAndIconsHtml(r.label, innerIconsArr(r.json))
   const summaryParts = [
     `<strong>${escapeHtml(r.kind)}</strong>`,
     r.children.length > 0 ? escapeHtml(t('summary.entriesCount', { count: r.children.length })) : null,
     r.versionString ? escapeHtml(t('summary.version', { ver: r.versionString })) : null,
-    (r.label && stripFactorioTags(r.label)) ? `«${escapeHtml(stripFactorioTags(r.label))}»` : null
+    rootLabelHtml ? `«${rootLabelHtml}»` : null
   ].filter(Boolean).join(' · ')
 
   const showTree = r.children.length > 0
@@ -160,8 +214,10 @@ function renderDecoded(s) {
       ${s.editing ? `
         <textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>
         <div class="actions">
-          <button id="btn-encode" class="primary">${escapeHtml(t('buttons.encode'))}</button>
-          <button id="btn-cancel">${escapeHtml(t('buttons.cancel'))}</button>
+          ${s.busy
+            ? `<button id="btn-encode" class="primary" disabled><span class="spinner"></span>${escapeHtml(t('buttons.encoding'))}</button>`
+            : `<button id="btn-encode" class="primary">${escapeHtml(t('buttons.encode'))}</button>`}
+          <button id="btn-cancel" ${s.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.cancel'))}</button>
         </div>
       ` : `
         <pre class="json">${escapeHtml(jsonText)}</pre>
@@ -222,7 +278,7 @@ function renderTree(children, selectedPath, query) {
       <div class="tree-node ${arraysEqual(c.path, selectedPath) ? 'selected' : ''}"
            style="padding-left: ${c.path.length * 14}px"
            data-path="${c.path.join(',')}">
-        ${escapeHtml(stripFactorioTags(c.label) || t('treeNode.untitled'))}
+        ${renderLabelAndIconsHtml(c.label, innerIconsArr(c.json)) || escapeHtml(t('treeNode.untitled'))}
         <span class="badge">${escapeHtml(c.kind)}</span>
       </div>
     </li>
@@ -315,6 +371,7 @@ function wireDecoded() {
     state.encodeError = null
     render()
   })
+  wireIconFallback()
 }
 
 async function onCopy() {
@@ -347,10 +404,13 @@ function onDownload() {
   URL.revokeObjectURL(url)
 }
 
-function onEncode() {
+async function onEncode() {
+  if (state.busy) return
   state.encodeResult = null
   state.encodeError = null
 
+  // Parse the textarea cheaply on the click — if the JSON is broken,
+  // there's no need to flip the busy state at all.
   let parsed
   try {
     parsed = JSON.parse(state.draft)
@@ -360,26 +420,22 @@ function onEncode() {
     return
   }
 
+  state.busy = true
+  render()
+  await nextPaint()
   try {
     validate(parsed)
+    state.encodeResult = encode(parsed, { deflate: window.pako.deflate })
   } catch (e) {
     if (e instanceof ValidationError) {
       state.encodeError = t('errors.' + e.code, e.params)
-    } else {
-      state.encodeError = `${t('errors.UNKNOWN')}: ${e.message}`
-    }
-    render()
-    return
-  }
-
-  try {
-    state.encodeResult = encode(parsed, { deflate: window.pako.deflate })
-  } catch (e) {
-    if (e instanceof EncodeError) {
+    } else if (e instanceof EncodeError) {
       state.encodeError = t('errors.' + e.code)
     } else {
       state.encodeError = `${t('errors.UNKNOWN')}: ${e.message}`
     }
+  } finally {
+    state.busy = false
   }
   render()
 }
@@ -396,6 +452,17 @@ async function onCopyResult() {
   } catch {
     alert(t('clipboard.failure'))
   }
+}
+
+// One-shot fallback: if a Factorio icon fails to load (rare — manifest is
+// pinned, jsDelivr is reliable), replace the broken <img> with its alt text.
+function wireIconFallback() {
+  document.querySelectorAll('img.bp-icon').forEach(img => {
+    img.addEventListener('error', () => {
+      const txt = document.createTextNode(img.getAttribute('alt') || '')
+      img.replaceWith(txt)
+    })
+  })
 }
 
 // Wire the locale switch (the static markup is added in index.html — see Task 4).
