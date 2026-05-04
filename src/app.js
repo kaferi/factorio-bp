@@ -171,6 +171,43 @@ function renderLabelAndIconsHtml(label, iconsArr) {
   return iconsHtml || textHtml
 }
 
+// Build the breadcrumb segments from the root down to the currently
+// selected node. Each segment carries enough info for the renderer:
+// its path, label, and icons[]-array (so we can show icons + label).
+function breadcrumbSegments(result, selectedPath) {
+  if (selectedPath.length === 0) return []
+  const segments = [{
+    path: [],
+    label: result.label,
+    iconsArr: innerIconsArr(result.json),
+    kind: result.kind
+  }]
+  for (let i = 1; i <= selectedPath.length; i++) {
+    const subpath = selectedPath.slice(0, i)
+    const child = result.children.find(c => arraysEqual(c.path, subpath))
+    if (!child) continue
+    segments.push({
+      path: subpath,
+      label: child.label,
+      iconsArr: innerIconsArr(child.json),
+      kind: child.kind
+    })
+  }
+  return segments
+}
+
+function renderBreadcrumb(s) {
+  const segments = breadcrumbSegments(s.result, s.selectedPath)
+  if (segments.length === 0) return ''
+  const lastIdx = segments.length - 1
+  const items = segments.map((seg, i) => {
+    const display = renderLabelAndIconsHtml(seg.label, seg.iconsArr) || escapeHtml(t('treeNode.untitled'))
+    const cls = i === lastIdx ? 'bc-segment current' : 'bc-segment'
+    return `<span class="${cls}" data-path="${seg.path.join(',')}">${display}</span>`
+  })
+  return `<div class="breadcrumb">${items.join('<span class="bc-sep">›</span>')}</div>`
+}
+
 // What we encode for the current selection. For book children we strip
 // the `index` field — it is a position marker inside the parent and is
 // meaningless in a standalone blueprint string.
@@ -211,6 +248,7 @@ function renderDecoded(s) {
       </div>
     ` : ''}
     ${s.view === 'json' || !showTree ? `
+      ${renderBreadcrumb(s)}
       ${s.editing ? `
         <textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>
         <div class="actions">
@@ -322,6 +360,20 @@ function wireDecoded() {
   document.querySelectorAll('.tree-node').forEach(el => {
     el.addEventListener('click', () => {
       const path = el.dataset.path.split(',').map(Number)
+      state.selectedPath = path
+      state.view = 'json'
+      state.editing = false
+      state.draft = ''
+      state.encodeResult = null
+      state.encodeError = null
+      render()
+    })
+  })
+  document.querySelectorAll('.breadcrumb .bc-segment').forEach(el => {
+    el.addEventListener('click', () => {
+      const raw = el.dataset.path
+      const path = raw === '' ? [] : raw.split(',').map(Number)
+      if (arraysEqual(state.selectedPath, path) && !state.editing) return
       state.selectedPath = path
       state.view = 'json'
       state.editing = false

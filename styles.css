@@ -288,6 +288,27 @@ img.bp-icon {
 .tree-node img.bp-icon { height: 1em; vertical-align: -0.15em; }
 .summary img.bp-icon { height: 1.05em; vertical-align: -0.18em; }
 
+.breadcrumb {
+  margin-top: 12px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+}
+.bc-segment {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+.bc-segment:hover { background: var(--surface-hover); color: var(--text); }
+.bc-segment.current { color: var(--text); font-weight: 600; }
+.bc-sep { color: var(--text-faint); margin: 0 2px; user-select: none; }
+.breadcrumb img.bp-icon { height: 1em; vertical-align: -0.15em; }
+
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
