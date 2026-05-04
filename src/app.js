@@ -21,7 +21,8 @@ const state = {
   encodeResult: null,
   encodeError: null,
   searchQuery: '',
-  busy: false       // a heavy synchronous op (decode / encode) is running
+  busy: false,      // a heavy synchronous op (decode / encode) is running
+  collapsedPaths: new Set()  // set of path-keys ("0,1") of books the user collapsed
 }
 
 function render() {
@@ -91,6 +92,7 @@ async function onDecode() {
     state.view = 'json'
     state.selectedPath = []
     state.searchQuery = ''
+    state.collapsedPaths = new Set()
   } catch (e) {
     state.phase = 'error'
     state.error = localiseError(e)
@@ -120,6 +122,7 @@ function onClear() {
   state.encodeResult = null
   state.encodeError = null
   state.searchQuery = ''
+  state.collapsedPaths = new Set()
   render()
 }
 
@@ -277,7 +280,7 @@ function renderDecoded(s) {
         </div>
       ` : ''}
     ` : `
-      ${renderTree(r.children, s.selectedPath, s.searchQuery)}
+      ${renderTree(r.children, s.selectedPath, s.searchQuery, s.collapsedPaths)}
     `}
   `
 }
@@ -290,37 +293,55 @@ function labelMatches(label, query) {
   return raw.includes(q) || stripped.includes(q)
 }
 
-function visibleChildren(children, query) {
-  if (!query) return children
-  const visible = new Set()
+function visibleChildren(children, query, collapsedPaths) {
+  // Search overrides collapse: when the user is searching, every match
+  // (and its ancestors) is shown regardless of whether a parent book
+  // was previously collapsed. The collapsed state is preserved
+  // underneath and re-applies once the query is cleared.
   const pathKey = path => path.join(',')
-  for (const c of children) {
-    if (labelMatches(c.label, query)) {
-      visible.add(pathKey(c.path))
-      for (let i = 1; i < c.path.length; i++) {
-        visible.add(pathKey(c.path.slice(0, i)))
+  if (query) {
+    const visible = new Set()
+    for (const c of children) {
+      if (labelMatches(c.label, query)) {
+        visible.add(pathKey(c.path))
+        for (let i = 1; i < c.path.length; i++) {
+          visible.add(pathKey(c.path.slice(0, i)))
+        }
       }
     }
+    return children.filter(c => visible.has(pathKey(c.path)))
   }
-  return children.filter(c => visible.has(pathKey(c.path)))
+  if (!collapsedPaths || collapsedPaths.size === 0) return children
+  // Hide entries whose ancestor (any parent book in the path) is collapsed.
+  return children.filter(c => {
+    for (let i = 1; i < c.path.length; i++) {
+      if (collapsedPaths.has(pathKey(c.path.slice(0, i)))) return false
+    }
+    return true
+  })
 }
 
-function renderTree(children, selectedPath, query) {
-  // v1 simplification vs spec: render the flat list with depth-based
-  // indentation instead of expand/collapse toggles. For typical books
-  // (5-30 single-level entries) this reads cleanly; nesting is rare.
-  // Add per-book toggles here if deeply-nested books become common.
-  const filtered = visibleChildren(children, query)
-  const items = filtered.map(c => `
+function renderTree(children, selectedPath, query, collapsedPaths) {
+  const filtered = visibleChildren(children, query, collapsedPaths)
+  const items = filtered.map(c => {
+    const pathKey = c.path.join(',')
+    const isBook = c.kind === 'blueprint-book'
+    const collapsed = isBook && collapsedPaths && collapsedPaths.has(pathKey)
+    const toggle = isBook
+      ? `<span class="tree-toggle ${collapsed ? 'collapsed' : 'expanded'}" data-toggle="1" aria-label="toggle">▾</span>`
+      : `<span class="tree-toggle empty" aria-hidden="true"></span>`
+    return `
     <li>
       <div class="tree-node ${arraysEqual(c.path, selectedPath) ? 'selected' : ''}"
            style="padding-left: ${c.path.length * 14}px"
-           data-path="${c.path.join(',')}">
+           data-path="${pathKey}">
+        ${toggle}
         ${renderLabelAndIconsHtml(c.label, innerIconsArr(c.json)) || escapeHtml(t('treeNode.untitled'))}
         <span class="badge">${escapeHtml(c.kind)}</span>
       </div>
     </li>
-  `).join('')
+  `
+  }).join('')
 
   const treeBlock = filtered.length === 0
     ? `<p class="empty-tree">${escapeHtml(t('search.noMatches'))}</p>`
@@ -354,6 +375,19 @@ function wireDecoded() {
       state.draft = ''
       state.encodeResult = null
       state.encodeError = null
+      render()
+    })
+  })
+  document.querySelectorAll('.tree-toggle[data-toggle="1"]').forEach(el => {
+    el.addEventListener('click', e => {
+      // Stop the click from bubbling to the .tree-node row, which would
+      // otherwise navigate to this node. The toggle is for collapse only.
+      e.stopPropagation()
+      const row = el.closest('.tree-node')
+      const key = row?.dataset.path
+      if (key == null) return
+      if (state.collapsedPaths.has(key)) state.collapsedPaths.delete(key)
+      else state.collapsedPaths.add(key)
       render()
     })
   })
