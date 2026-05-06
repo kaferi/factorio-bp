@@ -57,14 +57,6 @@ export function extractComponents(json) {
 
 export const QUALITY_NONE = QUALITY_NORMAL
 
-// Quality colours (Factorio Space Age palette). normal = no badge.
-export const QUALITY_COLORS = {
-  uncommon:  '#4caf50',
-  rare:      '#2196f3',
-  epic:      '#ab47bc',
-  legendary: '#ff9800'
-}
-
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

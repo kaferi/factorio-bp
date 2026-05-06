@@ -438,13 +438,11 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .comp-tile .comp-quality {
   position: absolute;
-  left: 3px;
-  bottom: 3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  left: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
   pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   z-index: 2;
 }
 

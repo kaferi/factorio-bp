@@ -47,6 +47,13 @@ describe('lookupIconUrl', () => {
     expect(a).toBe(b)
     expect(a).toContain('signal/signal-1.png')
   })
+
+  it('finds quality indicator icons for all five tiers', () => {
+    for (const q of ['normal', 'uncommon', 'rare', 'epic', 'legendary']) {
+      const url = lookupIconUrl('quality', q)
+      expect(url, `quality=${q}`).toMatch(new RegExp(`quality-${q}\\.png$`))
+    }
+  })
 })
 
 describe('renderLabelWithIconsHtml', () => {

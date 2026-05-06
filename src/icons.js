@@ -22,7 +22,11 @@ const CANDIDATE_KEYS = {
   equipment:        name => [`equipment_${name}`],
   'item-group':     name => [`item-group_${name}`],
   planet:           name => [`icons_${name}`],
-  quality:          name => [`quality_${name}`]
+  // Quality indicator icons live under `icons_quality-<name>` in the
+  // upstream manifest (uncommon / rare / epic / legendary / normal).
+  // The older `quality_<name>` keys are mostly module variants, so we
+  // try the new shape first.
+  quality:          name => [`icons_quality-${name}`, `quality_${name}`]
 }
 
 // Factorio uses different `type` names in two places: rich-text labels

@@ -4,7 +4,7 @@ import { validate, ValidationError } from './validate.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
 import { stripFactorioTags } from './labels.js'
 import { renderLabelWithIconsHtml, renderIconsArrayHtml, lookupIconUrl } from './icons.js'
-import { extractComponents, findComponentMatches, QUALITY_COLORS } from './components.js'
+import { extractComponents, findComponentMatches } from './components.js'
 
 setLocale(detectLocale())
 
@@ -220,12 +220,6 @@ function renderBreadcrumb(s) {
   return `<div class="breadcrumb">${items.join('<span class="bc-sep">›</span>')}</div>`
 }
 
-// Quality colour palette for the small bottom-corner indicator on
-// component tiles. Imported from components.js.
-function qualityColor(quality) {
-  return QUALITY_COLORS[quality] ?? null
-}
-
 // Cap on how big a JSON string we are willing to splat into a single
 // <pre>. Beyond this we render a placeholder — the browser layout
 // cost on a multi-megabyte monospace pre with custom font dwarfs any
@@ -255,8 +249,13 @@ function renderComponentsPanel(s) {
     const iconHtml = url
       ? `<img class="bp-icon" src="${escapeHtml(url)}" alt="${escapeHtml(c.name)}" />`
       : `<span class="comp-fallback">${escapeHtml(c.name.slice(0, 4))}</span>`
-    const qColor = qualityColor(c.quality)
-    const qBar = qColor ? `<span class="comp-quality" style="background:${qColor}"></span>` : ''
+    // Quality is shown via the matching in-game indicator icon
+    // (uncommon / rare / epic / legendary). Normal quality is the
+    // default and shows nothing — keeps tiles clean.
+    const qUrl = c.quality !== 'normal' ? lookupIconUrl('quality', c.quality) : null
+    const qBar = qUrl
+      ? `<img class="comp-quality" src="${escapeHtml(qUrl)}" alt="${escapeHtml(c.quality)}" />`
+      : ''
     const titleParts = [c.name]
     if (c.quality !== 'normal') titleParts.push(c.quality)
     titleParts.push(`× ${c.count}`)
