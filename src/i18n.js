@@ -64,7 +64,12 @@ const messages = {
     'errors.ENTITY_MALFORMED': 'Entity at {path} is malformed (missing name or position)',
 
     'search.placeholder': 'Search blueprints…',
-    'search.noMatches': 'No matches'
+    'search.noMatches': 'No matches',
+
+    'components.title': 'Components',
+    'components.match': '{current} of {total}',
+
+    'json.tooLarge': 'JSON is too large to render ({size}). Use Copy / Download to inspect it, or pick a child below.'
   },
   ru: {
     'header.title': 'Декодер чертежей Factorio',
@@ -125,7 +130,12 @@ const messages = {
     'errors.ENTITY_MALFORMED': 'Сущность {path} некорректна (нет name или position)',
 
     'search.placeholder': 'Поиск чертежей…',
-    'search.noMatches': 'Ничего не найдено'
+    'search.noMatches': 'Ничего не найдено',
+
+    'components.title': 'Компоненты',
+    'components.match': '{current} из {total}',
+
+    'json.tooLarge': 'JSON слишком большой для отображения ({size}). Используй Копировать / Скачать, или выбери вложенный чертёж ниже.'
   }
 }
 

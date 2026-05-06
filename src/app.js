@@ -3,7 +3,8 @@ import { encode, EncodeError } from './encode.js'
 import { validate, ValidationError } from './validate.js'
 import { t, setLocale, getLocale, detectLocale } from './i18n.js'
 import { stripFactorioTags } from './labels.js'
-import { renderLabelWithIconsHtml, renderIconsArrayHtml } from './icons.js'
+import { renderLabelWithIconsHtml, renderIconsArrayHtml, lookupIconUrl } from './icons.js'
+import { extractComponents, findComponentMatches, QUALITY_COLORS } from './components.js'
 
 setLocale(detectLocale())
 
@@ -22,7 +23,9 @@ const state = {
   encodeError: null,
   searchQuery: '',
   busy: false,      // a heavy synchronous op (decode / encode) is running
-  collapsedPaths: new Set()  // set of path-keys ("0,1") of books the user collapsed
+  collapsedPaths: new Set(),// set of path-keys ("0,1") of books the user collapsed
+  activeComponent: null,    // { kind, name, quality } currently highlighted in JSON, or null
+  componentMatchIdx: 0      // index of the current match within state.activeComponent
 }
 
 function render() {
@@ -93,6 +96,8 @@ async function onDecode() {
     state.selectedPath = []
     state.searchQuery = ''
     state.collapsedPaths = new Set()
+    state.activeComponent = null
+    state.componentMatchIdx = 0
   } catch (e) {
     state.phase = 'error'
     state.error = localiseError(e)
@@ -123,6 +128,8 @@ function onClear() {
   state.encodeError = null
   state.searchQuery = ''
   state.collapsedPaths = new Set()
+  state.activeComponent = null
+  state.componentMatchIdx = 0
   render()
 }
 
@@ -211,6 +218,101 @@ function renderBreadcrumb(s) {
   return `<div class="breadcrumb">${items.join('<span class="bc-sep">›</span>')}</div>`
 }
 
+// Quality colour palette for the small bottom-corner indicator on
+// component tiles. Imported from components.js.
+function qualityColor(quality) {
+  return QUALITY_COLORS[quality] ?? null
+}
+
+// Cap on how big a JSON string we are willing to splat into a single
+// <pre>. Beyond this we render a placeholder — the browser layout
+// cost on a multi-megabyte monospace pre with custom font dwarfs any
+// usefulness, and Copy/Download still work on the underlying object.
+const JSON_RENDER_LIMIT = 2_000_000  // 2 MB of pretty-printed text
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Render the components panel (entities + tiles aggregated by name +
+// quality). Only meaningful for blueprint nodes — book / planner
+// nodes return ''.
+function renderComponentsPanel(s) {
+  const node = getNodeAtPath(s.result, s.selectedPath)
+  if (node.kind !== 'blueprint') return ''
+  const components = extractComponents(node.json)
+  if (components.length === 0) return ''
+
+  const ac = s.activeComponent
+  const tiles = components.map(c => {
+    const isActive = ac && ac.kind === c.kind && ac.name === c.name && ac.quality === c.quality
+    const url = lookupIconUrl(c.kind === 'tile' ? 'tile' : 'item', c.name)
+      ?? lookupIconUrl('entity', c.name)
+    const iconHtml = url
+      ? `<img class="bp-icon" src="${escapeHtml(url)}" alt="${escapeHtml(c.name)}" />`
+      : `<span class="comp-fallback">${escapeHtml(c.name.slice(0, 4))}</span>`
+    const qColor = qualityColor(c.quality)
+    const qBar = qColor ? `<span class="comp-quality" style="background:${qColor}"></span>` : ''
+    const titleParts = [c.name]
+    if (c.quality !== 'normal') titleParts.push(c.quality)
+    titleParts.push(`× ${c.count}`)
+    return `
+      <button type="button"
+        class="comp-tile ${isActive ? 'active' : ''}"
+        title="${escapeHtml(titleParts.join(' '))}"
+        data-comp-kind="${escapeHtml(c.kind)}"
+        data-comp-name="${escapeHtml(c.name)}"
+        data-comp-quality="${escapeHtml(c.quality)}">
+        <span class="comp-slot">${iconHtml}</span>
+        <span class="comp-count">${c.count}</span>
+        ${qBar}
+      </button>
+    `
+  }).join('')
+
+  return `
+    <div class="components-panel">
+      <div class="components-header">${escapeHtml(t('components.title'))}</div>
+      <div class="components-grid">${tiles}</div>
+    </div>
+  `
+}
+
+// Wrap matches in <mark> spans so the JSON pane highlights every
+// occurrence of the active component, with the current one tagged
+// differently so we can scroll it into view.
+function buildHighlightedJsonHtml(jsonText, activeComponent, currentIdx) {
+  if (!activeComponent) return escapeHtml(jsonText)
+  const matches = findComponentMatches(jsonText, activeComponent.name, activeComponent.quality)
+  if (matches.length === 0) return escapeHtml(jsonText)
+  // Filter matches by kind: entities live in `"entities"` array, tiles
+  // in `"tiles"`. We don't want a tile click to highlight an entity
+  // that happens to have the same name. To filter, look at the surrounding
+  // text — quick heuristic: the closest enclosing array key.
+  const filtered = matches.filter(m => {
+    const back = jsonText.slice(0, m.start)
+    const lastEntities = back.lastIndexOf('"entities"')
+    const lastTiles = back.lastIndexOf('"tiles"')
+    if (activeComponent.kind === 'tile') return lastTiles > lastEntities
+    return lastEntities > lastTiles
+  })
+  if (filtered.length === 0) return escapeHtml(jsonText)
+  const safeIdx = ((currentIdx % filtered.length) + filtered.length) % filtered.length
+  let out = ''
+  let cursor = 0
+  filtered.forEach((m, i) => {
+    out += escapeHtml(jsonText.slice(cursor, m.start))
+    const cls = i === safeIdx ? 'bp-match bp-match-current' : 'bp-match'
+    const id = i === safeIdx ? ' id="bp-match-current"' : ''
+    out += `<mark class="${cls}"${id}>${escapeHtml(jsonText.slice(m.start, m.end))}</mark>`
+    cursor = m.end
+  })
+  out += escapeHtml(jsonText.slice(cursor))
+  return out
+}
+
 // What we encode for the current selection. For book children we strip
 // the `index` field — it is a position marker inside the parent and is
 // meaningless in a standalone blueprint string.
@@ -261,9 +363,12 @@ function renderDecoded(s) {
           <button id="btn-cancel" ${s.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.cancel'))}</button>
         </div>
       ` : `
-        <pre class="json">${escapeHtml(jsonText)}</pre>
+        ${renderComponentsPanel(s)}
+        ${jsonText.length > JSON_RENDER_LIMIT
+          ? `<p class="json-too-large">${escapeHtml(t('json.tooLarge', { size: formatSize(jsonText.length) }))}</p>`
+          : `<pre class="json">${buildHighlightedJsonHtml(jsonText, s.activeComponent, s.componentMatchIdx)}</pre>`}
         <div class="actions">
-          <button id="btn-edit-json">${escapeHtml(t('buttons.edit'))}</button>
+          <button id="btn-edit-json" ${jsonText.length > JSON_RENDER_LIMIT ? 'disabled' : ''}>${escapeHtml(t('buttons.edit'))}</button>
           <button id="btn-copy">${escapeHtml(t('buttons.copy'))}</button>
           <button id="btn-download">${escapeHtml(t('buttons.download'))}</button>
         </div>
@@ -400,6 +505,8 @@ function wireDecoded() {
       state.draft = ''
       state.encodeResult = null
       state.encodeError = null
+      state.activeComponent = null
+      state.componentMatchIdx = 0
       render()
     })
   })
@@ -414,6 +521,8 @@ function wireDecoded() {
       state.draft = ''
       state.encodeResult = null
       state.encodeError = null
+      state.activeComponent = null
+      state.componentMatchIdx = 0
       render()
     })
   })
@@ -456,6 +565,27 @@ function wireDecoded() {
     state.encodeResult = null
     state.encodeError = null
     render()
+  })
+  document.querySelectorAll('.comp-tile').forEach(el => {
+    el.addEventListener('click', () => {
+      const kind = el.dataset.compKind
+      const name = el.dataset.compName
+      const quality = el.dataset.compQuality
+      const ac = state.activeComponent
+      if (ac && ac.kind === kind && ac.name === name && ac.quality === quality) {
+        // Same tile clicked → cycle to next match.
+        state.componentMatchIdx = state.componentMatchIdx + 1
+      } else {
+        state.activeComponent = { kind, name, quality }
+        state.componentMatchIdx = 0
+      }
+      render()
+      // Scroll the current match into view after the re-render.
+      requestAnimationFrame(() => {
+        const cur = document.getElementById('bp-match-current')
+        if (cur) cur.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      })
+    })
   })
   wireIconFallback()
 }
@@ -587,4 +717,12 @@ function updateLocaleSwitch() {
 hydrateStaticText()
 updateLocaleSwitch()
 wireLocaleSwitch()
+// Esc clears the active component highlight (a one-time global listener).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.activeComponent) {
+    state.activeComponent = null
+    state.componentMatchIdx = 0
+    render()
+  }
+})
 render()

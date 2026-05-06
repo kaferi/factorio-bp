@@ -358,3 +358,116 @@ button.primary:disabled:hover { background: var(--accent); }
   border: 3px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--surface-hover); }
+
+.components-panel {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.components-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.components-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.comp-tile {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  background: #4a4a52;
+  border: none;
+  border-radius: 3px;
+  /* Faint bevel: light top-left, dark bottom-right — matches the in-game tile look. */
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.06),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  overflow: hidden;
+}
+.comp-tile:hover {
+  background: #ff9800;
+  box-shadow: none;
+}
+.comp-tile.active {
+  background: #ff9800;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.35);
+}
+.comp-tile .comp-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.comp-tile img.bp-icon {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  vertical-align: middle;
+}
+.comp-tile .comp-fallback {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: ui-monospace, monospace;
+}
+.comp-tile .comp-count {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+  z-index: 2;
+}
+.comp-tile .comp-quality {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  z-index: 2;
+}
+
+p.json-too-large {
+  margin: 8px 0 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+mark.bp-match {
+  background: rgba(255, 235, 59, 0.25);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.bp-match-current {
+  background: #ff9800;
+  color: #1e1e22;
+  outline: 2px solid #ff9800;
+  outline-offset: 1px;
+}
