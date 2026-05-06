@@ -92,7 +92,9 @@ async function onDecode() {
     state.phase = 'decoded'
     state.result = result
     state.error = null
-    state.view = 'json'
+    // Books and planners-with-children open on the tree tab so the user
+    // sees the contents at a glance instead of a giant raw JSON.
+    state.view = result.children.length > 0 ? 'tree' : 'json'
     state.selectedPath = []
     state.searchQuery = ''
     state.collapsedPaths = new Set()

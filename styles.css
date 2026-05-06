@@ -424,7 +424,7 @@ button.primary:disabled:hover { background: var(--accent); }
 }
 .comp-tile .comp-count {
   position: absolute;
-  top: 1px;
+  bottom: 1px;
   right: 3px;
   font-size: 11px;
   font-weight: 700;
