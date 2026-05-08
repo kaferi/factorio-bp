@@ -83,6 +83,17 @@ button.primary { background: var(--accent); color: var(--bg); border-color: var(
 button:hover { background: var(--surface-hover); }
 button.primary:hover { background: var(--accent-hover); }
 
+/* "Demo" — secondary action: light green, pushed to the right of the row.
+   `margin-left: auto` inside the flex .btn-row aligns it to the trailing edge. */
+button.btn-demo {
+  margin-left: auto;
+  background: #6dc789;
+  color: #1e1e22;
+  border-color: #6dc789;
+}
+button.btn-demo:hover { background: #82d39c; }
+button.btn-demo:disabled:hover { background: #6dc789; }
+
 .error {
   margin-top: 8px;
   color: var(--error);

@@ -35,24 +35,33 @@ function render() {
     return
   }
   // empty or error — show input form
+  const inputEmpty = state.input.trim().length === 0
+  const decodeDisabled = state.busy || inputEmpty
   const decodeBtn = state.busy
     ? `<button id="btn-decode" class="primary" disabled><span class="spinner"></span>${escapeHtml(t('buttons.decoding'))}</button>`
-    : `<button id="btn-decode" class="primary">${escapeHtml(t('buttons.decode'))}</button>`
+    : `<button id="btn-decode" class="primary"${decodeDisabled ? ' disabled' : ''}>${escapeHtml(t('buttons.decode'))}</button>`
   root.innerHTML = `
     <textarea id="bp-input" placeholder="${escapeHtml(t('input.placeholder'))}" ${state.busy ? 'disabled' : ''}>${escapeHtml(state.input)}</textarea>
     <div class="btn-row">
       ${decodeBtn}
       <button id="btn-paste" ${state.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.paste'))}</button>
       <button id="btn-clear" ${state.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.clear'))}</button>
+      <button id="btn-demo" class="btn-demo" ${state.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.demo'))}</button>
     </div>
     ${state.phase === 'error' ? `<p class="error">${escapeHtml(state.error || '')}</p>` : ''}
   `
   if (!state.busy) {
     document.getElementById('btn-decode').addEventListener('click', onDecode)
     document.getElementById('btn-paste').addEventListener('click', onPaste)
+    document.getElementById('btn-demo').addEventListener('click', onDemo)
     document.getElementById('btn-clear').addEventListener('click', onClear)
+    // Live-update Decode's disabled state as the user types — saves a
+    // full re-render on every keystroke while still keeping the button
+    // and the input in sync.
+    const decodeBtnEl = document.getElementById('btn-decode')
     document.getElementById('bp-input').addEventListener('input', e => {
       state.input = e.target.value
+      decodeBtnEl.disabled = state.input.trim().length === 0
     })
   }
 }
@@ -117,6 +126,42 @@ async function onPaste() {
   } catch {
     // Clipboard not available — silently ignore; the user can paste manually.
   }
+}
+
+// Loads our committed sample blueprint string and decodes it in one go,
+// so the user doesn't have to copy-paste the fixture every time. The
+// fixture is shipped at the same origin as the page (it lives under
+// `src/__fixtures__/` in the repo, served as-is by GitHub Pages).
+const DEMO_FIXTURE_URL = 'src/__fixtures__/real-large-book.txt'
+
+async function onDemo() {
+  if (state.busy) return
+  state.busy = true
+  render()
+  await nextPaint()
+  try {
+    const res = await fetch(DEMO_FIXTURE_URL)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    state.input = await res.text()
+    const result = decode(state.input, { inflate: window.pako.inflate })
+    state.phase = 'decoded'
+    state.result = result
+    state.error = null
+    state.view = result.children.length > 0 ? 'tree' : 'json'
+    state.selectedPath = []
+    state.searchQuery = ''
+    state.collapsedPaths = new Set()
+    state.activeComponent = null
+    state.componentMatchIdx = 0
+  } catch (e) {
+    state.phase = 'error'
+    state.error = e instanceof DecodeError
+      ? localiseError(e)
+      : `${t('errors.UNKNOWN')}: ${e.message}`
+  } finally {
+    state.busy = false
+  }
+  render()
 }
 
 function onClear() {
