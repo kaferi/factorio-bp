@@ -144,24 +144,38 @@ APIs.
 
 Every operation — decode, edit, encode, validate, search, components
 indexing — runs entirely in your browser. Nothing is uploaded. Nothing is
-logged. There is no backend. The only outbound network requests are for
-icon images served from the jsDelivr CDN.
+logged. There is no backend. There are no third-party requests at all:
+icons are bundled with the site and served from the same origin.
 
 ## Icons
 
-Factorio icons are loaded from the third-party
-[`deniszholob/icons-factorio`](https://github.com/deniszholob/icons-factorio)
-repository via the [jsDelivr](https://www.jsdelivr.com/) CDN, pinned to
-a specific commit SHA so upstream changes can't silently break us.
+Factorio icons are bundled in the `icons/` folder of this repository and
+served directly from GitHub Pages, alongside the rest of the site.
 
-The upstream `manifest.json` is fetched and transformed into a local
-JS module (`src/icons-manifest.js`) by `scripts/build-icons-manifest.mjs`.
-To bump the SHA and pull in newer icons:
+`scripts/build-icons-manifest.mjs` walks `icons/` and writes a flat
+`category_name → relative URL` map to `src/icons-manifest.js`. Filename
+underscores are normalised to hyphens so `signal/signal_1.png` becomes
+the key `signal_signal-1` — matching the dashed names Factorio uses
+inside blueprint JSON.
 
-```bash
-# Edit SHA in scripts/build-icons-manifest.mjs, then:
-npm run icons:update
-```
+To refresh icons (after a game update):
+
+1. Copy these folders out of your Factorio install (typical Steam path:
+   `C:\Program Files (x86)\Steam\steamapps\common\Factorio\data\`):
+
+   | Source | Destination |
+   |---|---|
+   | `data/base/graphics/icons/` | `icons/base/icons/` |
+   | `data/base/graphics/achievement/` | `icons/base/achievement/` |
+   | `data/base/graphics/equipment/` | `icons/base/equipment/` |
+   | `data/base/graphics/technology/` | `icons/base/technology/` |
+   | `data/base/graphics/item-group/` | `icons/base/item-group/` |
+   | `data/space-age/graphics/icons/` | `icons/space-age/icons/` |
+   | `data/quality/graphics/icons/` | `icons/quality/icons/` |
+
+2. Run `npm run icons:update` to regenerate the manifest.
+
+3. Commit `icons/` and `src/icons-manifest.js`.
 
 Factorio icons are © Wube Software ltd. and used here with their explicit
 permission for non-commercial use.

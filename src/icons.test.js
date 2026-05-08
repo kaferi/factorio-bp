@@ -2,10 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { lookupIconUrl, renderLabelWithIconsHtml, renderIconsArrayHtml } from './icons.js'
 
 describe('lookupIconUrl', () => {
-  it('returns a jsDelivr URL for a base item', () => {
+  it('returns a relative URL for a base item', () => {
     const url = lookupIconUrl('item', 'iron-plate')
-    expect(url).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/gh\/deniszholob\/icons-factorio@[0-9a-f]{40}\//)
-    expect(url).toContain('iron-plate.png')
+    expect(url).toMatch(/^icons\/.+iron-plate\.png$/)
   })
 
   it('returns a URL for cargo-landing-pad (in icons_, not space-age)', () => {
@@ -20,7 +19,10 @@ describe('lookupIconUrl', () => {
 
   it('finds virtual-signal signal under signal_', () => {
     const url = lookupIconUrl('virtual-signal', 'signal-1')
-    expect(url).toContain('signal/signal-1.png')
+    // Game files use underscores (signal_1.png); we accept either form
+    // because manifest normalisation only affects the lookup key, not
+    // the on-disk filename.
+    expect(url).toMatch(/signal\/signal[_-]1\.png$/)
   })
 
   it('finds fluid', () => {
@@ -45,7 +47,7 @@ describe('lookupIconUrl', () => {
     const a = lookupIconUrl('virtual', 'signal-1')
     const b = lookupIconUrl('virtual-signal', 'signal-1')
     expect(a).toBe(b)
-    expect(a).toContain('signal/signal-1.png')
+    expect(a).toMatch(/signal\/signal[_-]1\.png$/)
   })
 
   it('finds quality indicator icons for all five tiers', () => {
@@ -59,7 +61,7 @@ describe('lookupIconUrl', () => {
 describe('renderLabelWithIconsHtml', () => {
   it('renders a single item tag as <img> followed by the text', () => {
     const html = renderLabelWithIconsHtml('[item=iron-plate] My Foundry')
-    expect(html).toMatch(/^<img class="bp-icon" src="https:\/\/cdn\.jsdelivr\.net[^"]+iron-plate\.png" alt="\[item=iron-plate\]" \/>\s*My Foundry$/)
+    expect(html).toMatch(/^<img class="bp-icon" src="icons\/[^"]+iron-plate\.png" alt="\[item=iron-plate\]" \/>\s*My Foundry$/)
   })
 
   it('emits an <img> for cargo-landing-pad (the case the heuristic missed)', () => {
