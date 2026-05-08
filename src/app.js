@@ -259,13 +259,19 @@ function renderComponentsPanel(s) {
     const titleParts = [c.name]
     if (c.quality !== 'normal') titleParts.push(c.quality)
     titleParts.push(`× ${c.count}`)
+    // Aggregated entries (e.g. the "rail" bucket combining straight, curved
+    // and elevated variants) carry `matchNames`; the click-to-jump search
+    // uses them to highlight every variant in the JSON pane.
+    const matchNamesAttr = Array.isArray(c.matchNames)
+      ? ` data-comp-match-names="${escapeHtml(JSON.stringify(c.matchNames))}"`
+      : ''
     return `
       <button type="button"
         class="comp-tile ${isActive ? 'active' : ''}"
         title="${escapeHtml(titleParts.join(' '))}"
         data-comp-kind="${escapeHtml(c.kind)}"
         data-comp-name="${escapeHtml(c.name)}"
-        data-comp-quality="${escapeHtml(c.quality)}">
+        data-comp-quality="${escapeHtml(c.quality)}"${matchNamesAttr}>
         <span class="comp-slot">${iconHtml}</span>
         <span class="comp-count">${c.count}</span>
         ${qBar}
@@ -286,7 +292,8 @@ function renderComponentsPanel(s) {
 // differently so we can scroll it into view.
 function buildHighlightedJsonHtml(jsonText, activeComponent, currentIdx) {
   if (!activeComponent) return escapeHtml(jsonText)
-  const matches = findComponentMatches(jsonText, activeComponent.name, activeComponent.quality)
+  const searchTarget = activeComponent.matchNames ?? activeComponent.name
+  const matches = findComponentMatches(jsonText, searchTarget, activeComponent.quality)
   if (matches.length === 0) return escapeHtml(jsonText)
   // Filter matches by kind: entities live in `"entities"` array, tiles
   // in `"tiles"`. We don't want a tile click to highlight an entity
@@ -572,12 +579,20 @@ function wireDecoded() {
       const kind = el.dataset.compKind
       const name = el.dataset.compName
       const quality = el.dataset.compQuality
+      let matchNames = null
+      const rawMatchNames = el.dataset.compMatchNames
+      if (rawMatchNames) {
+        try {
+          const parsed = JSON.parse(rawMatchNames)
+          if (Array.isArray(parsed)) matchNames = parsed
+        } catch { /* fall back to single-name search */ }
+      }
       const ac = state.activeComponent
       if (ac && ac.kind === kind && ac.name === name && ac.quality === quality) {
         // Same tile clicked → cycle to next match.
         state.componentMatchIdx = state.componentMatchIdx + 1
       } else {
-        state.activeComponent = { kind, name, quality }
+        state.activeComponent = { kind, name, quality, matchNames }
         state.componentMatchIdx = 0
       }
       render()
@@ -586,11 +601,12 @@ function wireDecoded() {
       // - View mode: scroll the <mark id="bp-match-current"> into view.
       // - Edit mode: select the matching range in the textarea so the
       //   browser auto-scrolls to it and the user sees the highlight.
+      const searchTarget = matchNames ?? name
       requestAnimationFrame(() => {
         if (state.editing) {
           const ta = document.getElementById('json-editor')
           if (!ta) return
-          const matches = findComponentMatches(state.draft, name, quality)
+          const matches = findComponentMatches(state.draft, searchTarget, quality)
           if (matches.length === 0) return
           const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
           const m = matches[idx]

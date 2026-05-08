@@ -81,6 +81,51 @@ describe('extractComponents', () => {
     expect(r[0].name).toBe('transport-belt')
   })
 
+  it('aggregates every rail variant into a single "rail" bucket weighted by recipe', () => {
+    // straight×2 = 2 items, curved-a×1 = 3, half-diag×1 = 3, elevated-straight×1 = 1.
+    // Total: 2 + 3 + 3 + 1 = 9 rail items.
+    const r = extractComponents({
+      blueprint: {
+        entities: [
+          { name: 'straight-rail', position: { x: 0, y: 0 } },
+          { name: 'straight-rail', position: { x: 2, y: 0 } },
+          { name: 'curved-rail-a', position: { x: 0, y: 2 } },
+          { name: 'half-diagonal-rail', position: { x: 0, y: 4 } },
+          { name: 'elevated-straight-rail', position: { x: 0, y: 6 } },
+          { name: 'transport-belt', position: { x: 0, y: 8 } }
+        ]
+      }
+    })
+    const rail = r.find(c => c.name === 'rail')
+    expect(rail).toBeDefined()
+    expect(rail.kind).toBe('entity')
+    expect(rail.quality).toBe('normal')
+    expect(rail.count).toBe(9)  // 2 + 4 + 2 + 1
+    expect(rail.matchNames).toEqual(expect.arrayContaining([
+      'straight-rail', 'curved-rail-a', 'half-diagonal-rail', 'elevated-straight-rail'
+    ]))
+    // The non-rail entity stays separate.
+    expect(r.find(c => c.name === 'transport-belt')).toBeDefined()
+  })
+
+  it('keeps rail buckets separate by quality and applies per-variant weights', () => {
+    // straight×1 = 1 (normal). curved-a + curved-b = 3 + 3 = 6 (legendary).
+    const r = extractComponents({
+      blueprint: {
+        entities: [
+          { name: 'straight-rail', position: { x: 0, y: 0 } },
+          { name: 'curved-rail-a', position: { x: 0, y: 2 }, quality: 'legendary' },
+          { name: 'curved-rail-b', position: { x: 0, y: 4 }, quality: 'legendary' }
+        ]
+      }
+    })
+    const normal = r.find(c => c.name === 'rail' && c.quality === 'normal')
+    const leg = r.find(c => c.name === 'rail' && c.quality === 'legendary')
+    expect(normal.count).toBe(1)
+    expect(leg.count).toBe(6)
+    expect(leg.matchNames).toEqual(expect.arrayContaining(['curved-rail-a', 'curved-rail-b']))
+  })
+
   it('skips malformed entries silently', () => {
     const r = extractComponents({
       blueprint: {
@@ -138,6 +183,25 @@ describe('findComponentMatches', () => {
     expect(findComponentMatches(null, 'x', 'normal')).toEqual([])
     expect(findComponentMatches('', 'x', 'normal')).toEqual([])
     expect(findComponentMatches(sample, '', 'normal')).toEqual([])
+  })
+
+  it('accepts an array of names and returns matches for any of them, sorted by position', () => {
+    const sample = JSON.stringify({
+      blueprint: {
+        entities: [
+          { entity_number: 1, name: 'straight-rail',     position: { x: 0, y: 0 } },
+          { entity_number: 2, name: 'curved-rail-a',     position: { x: 0, y: 2 } },
+          { entity_number: 3, name: 'transport-belt',    position: { x: 0, y: 4 } },
+          { entity_number: 4, name: 'half-diagonal-rail', position: { x: 0, y: 6 } }
+        ]
+      }
+    }, null, 2)
+    const matches = findComponentMatches(sample, ['straight-rail', 'curved-rail-a', 'half-diagonal-rail'], 'normal')
+    expect(matches).toHaveLength(3)
+    // Sorted by position — straight first, then curved, then half-diagonal
+    expect(sample.slice(matches[0].start, matches[0].end)).toMatch(/straight-rail/)
+    expect(sample.slice(matches[1].start, matches[1].end)).toMatch(/curved-rail-a/)
+    expect(sample.slice(matches[2].start, matches[2].end)).toMatch(/half-diagonal-rail/)
   })
 
   it('does not match a literal "name": "X" that appears inside a string label', () => {

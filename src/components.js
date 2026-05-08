@@ -4,6 +4,38 @@
 
 const QUALITY_NORMAL = 'normal'
 
+// Factorio's UI shows every rail variant under a single "rail" item with
+// a combined count — one icon for straight, curved-a/b, half-diagonal,
+// the elevated counterparts, etc. We mirror that aggregation in the
+// components panel so the user sees the same picture as the in-game
+// inventory.
+//
+// The map's value is how many `rail` items are needed to place one of
+// the entity (matching the entity's `minable.results.amount` in
+// Factorio's data): straight rails are 1×, half-diagonals 2×, full
+// curves 4×. The aggregated "rail" tile sums those weighted counts so
+// it matches what the game shows in the blueprint cost.
+const RAIL_ITEM_MULTIPLIER = {
+  'rail':                          1,
+  'straight-rail':                 1,
+  'curved-rail':                   3,
+  'curved-rail-a':                 3,
+  'curved-rail-b':                 3,
+  'half-diagonal-rail':            3,
+  'elevated-straight-rail':        1,
+  'elevated-curved-rail-a':        3,
+  'elevated-curved-rail-b':        3,
+  'elevated-half-diagonal-rail':   3
+}
+
+function railMultiplier(name) {
+  return RAIL_ITEM_MULTIPLIER[name] ?? 0
+}
+
+function isRailEntity(name) {
+  return name in RAIL_ITEM_MULTIPLIER
+}
+
 function readQuality(obj) {
   if (obj && typeof obj === 'object' && typeof obj.quality === 'string' && obj.quality.length > 0) {
     return obj.quality
@@ -27,6 +59,38 @@ function aggregate(arr, kind) {
   return [...map.values()]
 }
 
+// Folds every rail-variant entity into a single "rail" bucket per
+// quality, mirroring how Factorio's inventory UI counts them.
+// Each combined entry carries a `matchNames` array listing the
+// underlying entity names so the click-to-jump search can highlight
+// every variant in the JSON pane, not just the synthetic name.
+function aggregateRails(components) {
+  const railsByQuality = new Map()
+  const others = []
+  for (const c of components) {
+    if (c.kind === 'entity' && isRailEntity(c.name)) {
+      const itemsPerEntity = railMultiplier(c.name)
+      const itemsForThis = c.count * itemsPerEntity
+      const prev = railsByQuality.get(c.quality)
+      if (prev) {
+        prev.count += itemsForThis
+        if (!prev.matchNames.includes(c.name)) prev.matchNames.push(c.name)
+      } else {
+        railsByQuality.set(c.quality, {
+          kind: 'entity',
+          name: 'rail',
+          quality: c.quality,
+          count: itemsForThis,
+          matchNames: [c.name]
+        })
+      }
+    } else {
+      others.push(c)
+    }
+  }
+  return [...others, ...railsByQuality.values()]
+}
+
 // Public API.
 //
 // Input: a wrapper-shaped object such as `{ blueprint: { entities, tiles } }`,
@@ -42,10 +106,11 @@ export function extractComponents(json) {
   const tiles = Array.isArray(inner.tiles) ? inner.tiles : []
   if (entities.length === 0 && tiles.length === 0) return []
 
-  const components = [
+  let components = [
     ...aggregate(entities, 'entity'),
     ...aggregate(tiles, 'tile')
   ]
+  components = aggregateRails(components)
 
   components.sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count
@@ -129,32 +194,41 @@ function stringLiteralMask(text, upto) {
 }
 
 // Find every entity / tile match in `jsonText` whose `name` is `name`
-// AND whose enclosing object's `quality` matches the requested one
-// (with absence of "quality" treated as 'normal'). Returns an array of
-// { start, end } character positions of the `"name": "<X>"` substring.
+// (or one of `name` if it's an array — used for aggregated entries
+// like the "rail" bucket) AND whose enclosing object's `quality`
+// matches the requested one (with absence of "quality" treated as
+// 'normal'). Returns an array of `{ start, end }` character positions
+// of the `"name": "<X>"` substring, sorted by `start`.
 //
 // Used by the UI to wrap matches in <mark> spans for the components
 // panel click handler.
 export function findComponentMatches(jsonText, name, quality) {
-  if (typeof jsonText !== 'string' || typeof name !== 'string' || name.length === 0) return []
+  if (typeof jsonText !== 'string') return []
+  const names = Array.isArray(name) ? name : [name]
+  const filteredNames = names.filter(n => typeof n === 'string' && n.length > 0)
+  if (filteredNames.length === 0) return []
+
   const wanted = (typeof quality === 'string' && quality.length > 0) ? quality : QUALITY_NORMAL
-  const matches = []
-  const nameRe = new RegExp(`"name":\\s*"${escapeRegex(name)}"`, 'g')
-  // We need brace info for the whole document; compute the string-literal
-  // mask once and reuse for every match.
   const mask = stringLiteralMask(jsonText, jsonText.length)
-  let m
-  while ((m = nameRe.exec(jsonText)) !== null) {
-    if (mask[m.index]) continue  // matched inside a string literal — false positive
-    const objStart = walkBraceBackward(jsonText, m.index, mask)
-    if (objStart < 0) continue
-    const objEnd = walkBraceForward(jsonText, m.index, mask)
-    if (objEnd < 0) continue
-    const objText = jsonText.slice(objStart, objEnd + 1)
-    const qualityMatch = /"quality":\s*"([^"]*)"/.exec(objText)
-    const actual = qualityMatch ? qualityMatch[1] : QUALITY_NORMAL
-    if (actual === wanted) matches.push({ start: m.index, end: m.index + m[0].length })
+  const matches = []
+
+  for (const n of filteredNames) {
+    const nameRe = new RegExp(`"name":\\s*"${escapeRegex(n)}"`, 'g')
+    let m
+    while ((m = nameRe.exec(jsonText)) !== null) {
+      if (mask[m.index]) continue  // matched inside a string literal — false positive
+      const objStart = walkBraceBackward(jsonText, m.index, mask)
+      if (objStart < 0) continue
+      const objEnd = walkBraceForward(jsonText, m.index, mask)
+      if (objEnd < 0) continue
+      const objText = jsonText.slice(objStart, objEnd + 1)
+      const qualityMatch = /"quality":\s*"([^"]*)"/.exec(objText)
+      const actual = qualityMatch ? qualityMatch[1] : QUALITY_NORMAL
+      if (actual === wanted) matches.push({ start: m.index, end: m.index + m[0].length })
+    }
   }
+
+  matches.sort((a, b) => a.start - b.start)
   return matches
 }
 
