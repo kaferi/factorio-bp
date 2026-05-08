@@ -355,6 +355,7 @@ function renderDecoded(s) {
     ` : ''}
     ${s.view === 'json' || !showTree ? `
       ${renderBreadcrumb(s)}
+      ${renderComponentsPanel(s)}
       ${s.editing ? `
         <textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>
         <div class="actions">
@@ -364,7 +365,6 @@ function renderDecoded(s) {
           <button id="btn-cancel" ${s.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.cancel'))}</button>
         </div>
       ` : `
-        ${renderComponentsPanel(s)}
         ${jsonText.length > JSON_RENDER_LIMIT
           ? `<p class="json-too-large">${escapeHtml(t('json.tooLarge', { size: formatSize(jsonText.length) }))}</p>`
           : `<pre class="json">${buildHighlightedJsonHtml(jsonText, s.activeComponent, s.componentMatchIdx)}</pre>`}
@@ -581,10 +581,36 @@ function wireDecoded() {
         state.componentMatchIdx = 0
       }
       render()
-      // Scroll the current match into view after the re-render.
+      // After re-render, jump to the current match. Behaviour depends
+      // on which pane the JSON lives in:
+      // - View mode: scroll the <mark id="bp-match-current"> into view.
+      // - Edit mode: select the matching range in the textarea so the
+      //   browser auto-scrolls to it and the user sees the highlight.
       requestAnimationFrame(() => {
-        const cur = document.getElementById('bp-match-current')
-        if (cur) cur.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        if (state.editing) {
+          const ta = document.getElementById('json-editor')
+          if (!ta) return
+          const matches = findComponentMatches(state.draft, name, quality)
+          if (matches.length === 0) return
+          const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+          const m = matches[idx]
+          ta.focus()
+          ta.setSelectionRange(m.start, m.end)
+          // Browsers don't reliably auto-scroll a focused textarea to its
+          // selection. Compute the line number ourselves and set scrollTop.
+          const before = ta.value.slice(0, m.start)
+          const lineNum = (before.match(/\n/g) || []).length
+          const cs = getComputedStyle(ta)
+          let lineHeight = parseFloat(cs.lineHeight)
+          if (!Number.isFinite(lineHeight)) {
+            lineHeight = parseFloat(cs.fontSize) * 1.5
+          }
+          const target = lineNum * lineHeight - ta.clientHeight / 2 + lineHeight / 2
+          ta.scrollTop = Math.max(0, target)
+        } else {
+          const cur = document.getElementById('bp-match-current')
+          if (cur) cur.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }
       })
     })
   })
