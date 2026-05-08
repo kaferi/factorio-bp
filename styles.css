@@ -295,15 +295,24 @@ p.empty-tree {
   margin: 0;
 }
 
+/* Factorio icons in our `icons/` folder are mipmap sprite sheets:
+   the main icon sits in the leftmost height×height square, with smaller
+   variants stacked to the right (e.g. 64+32+16+8 = 120 pixels wide for
+   a 64-pixel-tall icon). `object-fit: cover` + `object-position: left top`
+   tells the browser to display only that leftmost square, scaled to the
+   element's dimensions. Works for square icons (no-op) and any aspect
+   ratio, including the rare taller-than-wide cases. */
 img.bp-icon {
   display: inline-block;
+  width: 1.1em;
   height: 1.1em;
-  width: auto;
+  object-fit: cover;
+  object-position: left top;
   vertical-align: -0.2em;
   margin: 0 1px;
 }
-.tree-node img.bp-icon { height: 1em; vertical-align: -0.15em; }
-.summary img.bp-icon { height: 1.05em; vertical-align: -0.18em; }
+.tree-node img.bp-icon { width: 1em; height: 1em; vertical-align: -0.15em; }
+.summary img.bp-icon { width: 1.05em; height: 1.05em; vertical-align: -0.18em; }
 
 .breadcrumb {
   margin-top: 12px;
