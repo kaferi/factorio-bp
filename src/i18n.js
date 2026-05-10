@@ -77,6 +77,7 @@ const messages = {
     'editor.chest.title': 'Chest options',
     'editor.chest.bar': 'Limit slots',
     'editor.chest.barHint': 'leave empty for no limit',
+    'editor.chest.barNoLimit': 'no limit',
     'editor.requester.requestFromBuffers': 'Request from buffer chests',
     'editor.requester.trashNotRequested': 'Trash unrequested'
   },
@@ -152,6 +153,7 @@ const messages = {
     'editor.chest.title': 'Опции сундука',
     'editor.chest.bar': 'Ограничить слоты',
     'editor.chest.barHint': 'пусто = без ограничения',
+    'editor.chest.barNoLimit': 'без ограничения',
     'editor.requester.requestFromBuffers': 'Запрашивать из буферных сундуков',
     'editor.requester.trashNotRequested': 'Незапрошенное — в мусор'
   }

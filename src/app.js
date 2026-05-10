@@ -443,21 +443,44 @@ function writeChestBar(entity, value) {
 }
 
 // Every chest entity that has a player-visible inventory and therefore
-// supports a bar limit. The structured editor uses this set to decide
-// whether to render the bar input.
-const CHEST_ENTITY_NAMES = new Set([
-  'wooden-chest',
-  'iron-chest',
-  'steel-chest',
-  'active-provider-chest',
-  'passive-provider-chest',
-  'storage-chest',
-  'requester-chest',
-  'buffer-chest'
-])
+// supports a bar limit. The map's value is the chest's base inventory
+// size (Factorio 2.0, normal quality) — used to render the slot grid
+// in the structured editor.
+const CHEST_INVENTORY_SIZES = {
+  'wooden-chest':            16,
+  'iron-chest':              32,
+  'steel-chest':             48,
+  'active-provider-chest':   48,
+  'passive-provider-chest':  48,
+  'storage-chest':           48,
+  'requester-chest':         48,
+  'buffer-chest':            48
+}
 
 function isChestEntity(name) {
-  return CHEST_ENTITY_NAMES.has(name)
+  return name in CHEST_INVENTORY_SIZES
+}
+
+function chestInventorySize(name) {
+  return CHEST_INVENTORY_SIZES[name] ?? 48
+}
+
+// Renders the in-game-style slot grid for the chest's bar limit.
+// Slots before `bar` are "usable" (orange), the slot at `bar` carries
+// the × marker, slots after it are "blocked" (dark). Click any slot to
+// move the bar there; click the marker itself to clear the limit.
+// `bar === null` means no limit — every slot is usable, no marker.
+function renderChestBarGrid(chestName, bar) {
+  const total = chestInventorySize(chestName)
+  const cells = []
+  for (let i = 0; i < total; i++) {
+    let cls = 'cb-slot'
+    if (bar == null || i < bar) cls += ' usable'
+    else if (i === bar) cls += ' bar-marker'
+    else cls += ' blocked'
+    cells.push(`<button type="button" class="${cls}" data-cb-slot="${i}" aria-label="slot ${i}"></button>`)
+  }
+  return `<div class="chest-bar-grid">${cells.join('')}</div>`
 }
 
 // After any re-render that should keep the user focused on the same
@@ -527,8 +550,8 @@ function renderEntityEditor(s) {
 
   const matches = entitiesMatchingActive(s)
   if (matches.length === 0) return ''
-  const total = matches.length
-  const idx = ((s.componentMatchIdx % total) + total) % total
+  const totalEntities = matches.length
+  const idx = ((s.componentMatchIdx % totalEntities) + totalEntities) % totalEntities
   const current = matches[idx] || matches[0]
 
   const isRequester = ac.name === 'requester-chest'
@@ -540,29 +563,27 @@ function renderEntityEditor(s) {
   const entNum = (current && typeof current.entity_number === 'number') ? current.entity_number : null
   const entNumLabel = entNum != null ? ` <span class="entity-editor-entnum">#${entNum}</span>` : ''
 
+  const totalSlots = chestInventorySize(ac.name)
+  const barStatus = bar == null
+    ? escapeHtml(t('editor.chest.barNoLimit'))
+    : `${bar} / ${totalSlots}`
+
   return `
     <div class="entity-editor">
       <div class="entity-editor-header">${escapeHtml(t('editor.chest.title'))}${entNumLabel}</div>
-      <label class="entity-editor-row">
+      <div class="entity-editor-bar-row">
         <span>${escapeHtml(t('editor.chest.bar'))}</span>
-        <input
-          type="number"
-          min="0"
-          step="1"
-          class="entity-editor-bar"
-          data-edit-bar="1"
-          value="${bar == null ? '' : bar}"
-          placeholder="${escapeHtml(t('editor.chest.barHint'))}"
-        />
-      </label>
+        <span class="entity-editor-bar-status">${barStatus}</span>
+      </div>
+      ${renderChestBarGrid(ac.name, bar)}
       ${isRequester ? `
-        <label class="entity-editor-row">
-          <input type="checkbox" data-edit-field="request_from_buffers" ${reqBufs ? 'checked' : ''} />
-          <span>${escapeHtml(t('editor.requester.requestFromBuffers'))}</span>
-        </label>
         <label class="entity-editor-row">
           <input type="checkbox" data-edit-field="trash_not_requested" ${trashUnreq ? 'checked' : ''} />
           <span>${escapeHtml(t('editor.requester.trashNotRequested'))}</span>
+        </label>
+        <label class="entity-editor-row">
+          <input type="checkbox" data-edit-field="request_from_buffers" ${reqBufs ? 'checked' : ''} />
+          <span>${escapeHtml(t('editor.requester.requestFromBuffers'))}</span>
         </label>
       ` : ''}
       <div class="entity-editor-scope">
@@ -572,7 +593,7 @@ function renderEntityEditor(s) {
         </label>
         <label>
           <input type="radio" name="edit-scope" value="all" ${s.editorScope === 'all' ? 'checked' : ''} />
-          <span>${escapeHtml(t('editor.scope.all'))} (${total})</span>
+          <span>${escapeHtml(t('editor.scope.all'))} (${totalEntities})</span>
         </label>
       </div>
     </div>
@@ -845,16 +866,20 @@ function wireDecoded() {
       requestAnimationFrame(focusActiveMatchInTextarea)
     })
   })
-  // Bar input: numeric slot limit. Empty / non-numeric → delete the
-  // field. Reacts on `change` (i.e. blur).
-  document.querySelectorAll('.entity-editor input[data-edit-bar="1"]').forEach(el => {
-    el.addEventListener('change', e => {
+  // Chest bar grid: clicking any slot moves the bar there. Clicking the
+  // current bar marker (the slot at `bar` index) clears the limit.
+  document.querySelectorAll('.cb-slot[data-cb-slot]').forEach(el => {
+    el.addEventListener('click', e => {
       if (!state.activeComponent) return
-      const raw = e.target.value.trim()
-      const num = raw === '' ? null : Number(raw)
-      const value = Number.isFinite(num) && num >= 0 ? num : null
+      const slot = parseInt(e.currentTarget.dataset.cbSlot, 10)
+      if (!Number.isFinite(slot)) return
+      const matches = entitiesMatchingActive(state)
+      if (matches.length === 0) return
+      const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+      const currentBar = readChestBar(matches[idx])
+      const newValue = currentBar === slot ? null : slot
       applyStructuredEdit(targets => {
-        for (const ent of targets) writeChestBar(ent, value)
+        for (const ent of targets) writeChestBar(ent, newValue)
       })
       render()
       requestAnimationFrame(focusActiveMatchInTextarea)
