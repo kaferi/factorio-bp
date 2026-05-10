@@ -25,7 +25,8 @@ const state = {
   collapsedPaths: new Set(),// set of path-keys ("0,1") of books the user collapsed
   activeComponent: null,    // { kind, name, quality } currently highlighted in JSON, or null
   componentMatchIdx: 0,     // index of the current match within state.activeComponent
-  editorScope: 'one'        // 'one' | 'all' — apply structured edits only to the currently active match, or to all entities of this type+quality
+  editorScope: 'one',       // 'one' | 'all' — apply structured edits only to the currently active match, or to all entities of this type+quality
+  confirmDelete: null       // null | { count, name } — when set, the delete-confirm modal is shown
 }
 
 // Build the editor's draft text for the currently selected node:
@@ -576,6 +577,79 @@ function applyStructuredEdit(mutator) {
   state.draft = JSON.stringify(parsed, null, 2)
 }
 
+// Deletes every entity whose `entity_number` is in `targetNumbers`,
+// then walks the surviving structure and strips dangling references
+// pointing at the now-gone entities so the resulting blueprint stays
+// internally consistent. Handles both Factorio 1.x layout
+// (entity.connections.{1,2}.{red,green}[].entity_id, entity.neighbours[])
+// and 2.x layout (blueprint.wires[] flat tuples). Schedules referencing
+// deleted locomotives are pruned, and the schedule entry is dropped if
+// no locomotive remains. No-op for an invalid draft or empty target set.
+function deleteEntitiesFromDraft(targetNumbers) {
+  if (!(targetNumbers instanceof Set) || targetNumbers.size === 0) return
+  let parsed
+  try { parsed = JSON.parse(state.draft) } catch { return }
+  const inner = parsed && (parsed.blueprint || parsed)
+  if (!inner || !Array.isArray(inner.entities)) return
+
+  inner.entities = inner.entities.filter(e =>
+    !(e && typeof e.entity_number === 'number' && targetNumbers.has(e.entity_number))
+  )
+
+  for (const e of inner.entities) {
+    if (!e || typeof e !== 'object') continue
+    // 1.x circuit-network connections: per-entity, two sides, two wire colors.
+    if (e.connections && typeof e.connections === 'object') {
+      for (const sideKey of Object.keys(e.connections)) {
+        const side = e.connections[sideKey]
+        if (!side || typeof side !== 'object') continue
+        for (const wire of ['red', 'green']) {
+          if (!Array.isArray(side[wire])) continue
+          side[wire] = side[wire].filter(c =>
+            !(c && typeof c.entity_id === 'number' && targetNumbers.has(c.entity_id))
+          )
+          if (side[wire].length === 0) delete side[wire]
+        }
+        if (Object.keys(side).length === 0) delete e.connections[sideKey]
+      }
+      if (Object.keys(e.connections).length === 0) delete e.connections
+    }
+    // 1.x copper-pole jumpers.
+    if (Array.isArray(e.neighbours)) {
+      e.neighbours = e.neighbours.filter(n =>
+        !(typeof n === 'number' && targetNumbers.has(n))
+      )
+      if (e.neighbours.length === 0) delete e.neighbours
+    }
+  }
+
+  // 2.x wires: flat array of [entity_a, wire_id_a, entity_b, wire_id_b].
+  if (Array.isArray(inner.wires)) {
+    inner.wires = inner.wires.filter(w =>
+      Array.isArray(w) &&
+      !(typeof w[0] === 'number' && targetNumbers.has(w[0])) &&
+      !(typeof w[2] === 'number' && targetNumbers.has(w[2]))
+    )
+    if (inner.wires.length === 0) delete inner.wires
+  }
+
+  if (Array.isArray(inner.schedules)) {
+    for (const s of inner.schedules) {
+      if (s && Array.isArray(s.locomotives)) {
+        s.locomotives = s.locomotives.filter(n =>
+          !(typeof n === 'number' && targetNumbers.has(n))
+        )
+      }
+    }
+    inner.schedules = inner.schedules.filter(s =>
+      s && Array.isArray(s.locomotives) && s.locomotives.length > 0
+    )
+    if (inner.schedules.length === 0) delete inner.schedules
+  }
+
+  state.draft = JSON.stringify(parsed, null, 2)
+}
+
 // Renders the structured-edit panel for the currently active component.
 // Shows the quality picker for every entity, the chest bar grid only
 // for chests, and the requester-specific checkboxes only for the
@@ -625,9 +699,22 @@ function renderEntityEditor(s) {
     ? escapeHtml(t('editor.chest.barNoLimit'))
     : `${bar} / ${totalSlots}`
 
+  // Inline SVG trash icon — keeps us off any external sprite, scales
+  // crisply, and recolors via `currentColor`.
+  const deleteSvg = `
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M2.5 4h11M6 4V2.75A.75.75 0 0 1 6.75 2h2.5a.75.75 0 0 1 .75.75V4M3.75 4l.7 8.4a1.5 1.5 0 0 0 1.5 1.35h4.1a1.5 1.5 0 0 0 1.5-1.35L12.25 4M6.75 7v4M9.25 7v4"/>
+    </svg>
+  `
+  const deleteBtn = `
+    <button type="button" class="entity-editor-delete" data-action="open-delete-confirm" title="${escapeHtml(t('buttons.delete'))}" aria-label="${escapeHtml(t('buttons.delete'))}">
+      ${deleteSvg}
+    </button>
+  `
+
   return `
     <div class="entity-editor">
-      <div class="entity-editor-header">${headerIcon}${escapeHtml(t('editor.entity.title'))}${entNumLabel}</div>
+      <div class="entity-editor-header">${headerIcon}${escapeHtml(t('editor.entity.title'))}${entNumLabel}${deleteBtn}</div>
       <div class="entity-editor-row">
         <span>${escapeHtml(t('editor.quality'))}</span>
         ${renderQualityPicker(ac.quality)}
@@ -728,6 +815,30 @@ function renderDecoded(s) {
     ` : `
       ${renderTree(r.children, s.selectedPath, s.searchQuery, s.collapsedPaths)}
     `}
+    ${renderDeleteConfirm(s)}
+  `
+}
+
+// Renders the delete-confirmation modal as the last child of the
+// decoded view. Returns '' when no confirmation is pending.
+function renderDeleteConfirm(s) {
+  const cd = s.confirmDelete
+  if (!cd) return ''
+  const title = escapeHtml(t('editor.delete.title'))
+  const body = cd.count > 1
+    ? escapeHtml(t('editor.delete.bodyMany', { name: cd.name, count: cd.count }))
+    : escapeHtml(t('editor.delete.bodyOne', { name: cd.name, num: cd.entityNumber ?? '?' }))
+  return `
+    <div class="modal-backdrop" data-action="cancel-delete">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" data-action="modal-keepalive">
+        <div class="modal-title" id="modal-title">${title}</div>
+        <div class="modal-body">${body}</div>
+        <div class="modal-actions">
+          <button type="button" data-action="cancel-delete">${escapeHtml(t('buttons.cancel'))}</button>
+          <button type="button" class="danger" data-action="confirm-delete">${escapeHtml(t('buttons.delete'))}</button>
+        </div>
+      </div>
+    </div>
   `
 }
 
@@ -977,6 +1088,67 @@ function wireDecoded() {
       render({ preserveScroll: true })
     })
   })
+  // Trash button — opens the confirmation modal. Captures the names /
+  // count to display now, since after the modal renders the user might
+  // change the scope and we want the message to match what they clicked.
+  document.querySelector('.entity-editor-delete[data-action="open-delete-confirm"]')?.addEventListener('click', () => {
+    const ac = state.activeComponent
+    if (!ac) return
+    const matches = entitiesMatchingActive(state)
+    if (matches.length === 0) return
+    const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+    const current = matches[idx]
+    const targets = state.editorScope === 'one' ? [current] : matches
+    state.confirmDelete = {
+      name: ac.name,
+      count: targets.length,
+      entityNumber: (current && typeof current.entity_number === 'number') ? current.entity_number : null
+    }
+    render()
+  })
+  // Modal backdrop click and Cancel button both dismiss without changes.
+  // Clicks inside the modal box itself are caught by the data-action
+  // attribute check so they don't bubble up as a "cancel" event.
+  document.querySelectorAll('[data-action="cancel-delete"]').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target !== e.currentTarget) return
+      state.confirmDelete = null
+      render()
+    })
+  })
+  document.querySelector('[data-action="confirm-delete"]')?.addEventListener('click', () => {
+    if (!state.confirmDelete) return
+    const ac = state.activeComponent
+    if (!ac) {
+      state.confirmDelete = null
+      render()
+      return
+    }
+    const matches = entitiesMatchingActive(state)
+    const idx = matches.length > 0
+      ? ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+      : 0
+    const current = matches[idx]
+    const targets = state.editorScope === 'one' && current ? [current] : matches
+    const numbers = new Set(
+      targets.map(e => e?.entity_number).filter(n => typeof n === 'number')
+    )
+    deleteEntitiesFromDraft(numbers)
+    state.confirmDelete = null
+    // Re-evaluate which matches survive so the editor / focus follow the
+    // user's last action: in 'one' scope the next sibling becomes the new
+    // active match; if the type is wiped out entirely (or 'all' scope was
+    // used), drop the active component so the editor closes.
+    const remaining = entitiesMatchingActive(state)
+    if (remaining.length === 0) {
+      state.activeComponent = null
+      state.componentMatchIdx = 0
+    } else {
+      state.componentMatchIdx = Math.min(state.componentMatchIdx, remaining.length - 1)
+    }
+    render()
+    requestAnimationFrame(focusActiveMatchInTextarea)
+  })
   wireIconFallback()
 }
 
@@ -1107,9 +1279,16 @@ function updateLocaleSwitch() {
 hydrateStaticText()
 updateLocaleSwitch()
 wireLocaleSwitch()
-// Esc clears the active component highlight (a one-time global listener).
+// Esc dismisses the delete-confirm modal first, then clears the active
+// component highlight. A single global listener wired once at startup.
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && state.activeComponent) {
+  if (e.key !== 'Escape') return
+  if (state.confirmDelete) {
+    state.confirmDelete = null
+    render()
+    return
+  }
+  if (state.activeComponent) {
     state.activeComponent = null
     state.componentMatchIdx = 0
     render()
