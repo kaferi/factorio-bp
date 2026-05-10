@@ -70,7 +70,13 @@ const messages = {
     'components.title': 'Components',
     'components.match': '{current} of {total}',
 
-    'json.tooLarge': 'JSON is too large to render ({size}). Use Copy / Download to inspect it, or pick a child below.'
+    'json.tooLarge': 'JSON is too large to render ({size}). Use Copy / Download to inspect it, or pick a child below.',
+
+    'editor.scope.one': 'Only this one',
+    'editor.scope.all': 'All of this type',
+    'editor.requester.title': 'Requester chest options',
+    'editor.requester.requestFromBuffers': 'Request from buffer chests',
+    'editor.requester.trashNotRequested': 'Trash unrequested'
   },
   ru: {
     'header.title': 'Декодер чертежей Factorio',
@@ -137,7 +143,13 @@ const messages = {
     'components.title': 'Компоненты',
     'components.match': '{current} из {total}',
 
-    'json.tooLarge': 'JSON слишком большой для отображения ({size}). Используй Копировать / Скачать, или выбери вложенный чертёж ниже.'
+    'json.tooLarge': 'JSON слишком большой для отображения ({size}). Используй Копировать / Скачать, или выбери вложенный чертёж ниже.',
+
+    'editor.scope.one': 'Только этот',
+    'editor.scope.all': 'Все того же типа',
+    'editor.requester.title': 'Опции сундука запроса',
+    'editor.requester.requestFromBuffers': 'Запрашивать из буферных сундуков',
+    'editor.requester.trashNotRequested': 'Незапрошенное — в мусор'
   }
 }
 

@@ -17,21 +17,61 @@ const state = {
   error: null,        // already-localised string
   view: 'json',       // 'json' | 'tree'
   selectedPath: [],   // [] = root
-  editing: false,
-  draft: '',
+  draft: '',          // current text in the JSON editor textarea (mirrors the selected node, edited freely by the user)
   encodeResult: null,
   encodeError: null,
   searchQuery: '',
   busy: false,      // a heavy synchronous op (decode / encode) is running
   collapsedPaths: new Set(),// set of path-keys ("0,1") of books the user collapsed
   activeComponent: null,    // { kind, name, quality } currently highlighted in JSON, or null
-  componentMatchIdx: 0      // index of the current match within state.activeComponent
+  componentMatchIdx: 0,     // index of the current match within state.activeComponent
+  editorScope: 'all'        // 'all' | 'one' — apply structured edits to all entities of this type+quality, or only the currently active match
 }
 
-function render() {
+// Build the editor's draft text for the currently selected node:
+// pretty-printed JSON, with the parent-book `index` field stripped on
+// children so the JSON reads as a standalone blueprint (matches what
+// Factorio exports natively and what Encode will produce).
+function draftForSelection(result, selectedPath) {
+  if (!result) return ''
+  const node = selectionForEncode(result, selectedPath)
+  return JSON.stringify(node, null, 2)
+}
+
+// Snapshot scroll positions of long content panes so we can restore
+// them after innerHTML replaces the DOM. Returns null fields when the
+// element isn't present in the current view.
+function captureScrolls() {
+  const pre = document.querySelector('pre.json')
+  const ta = document.getElementById('json-editor')
+  return {
+    pre: pre ? pre.scrollTop : null,
+    ta: ta ? ta.scrollTop : null,
+    taSelStart: ta ? ta.selectionStart : null,
+    taSelEnd: ta ? ta.selectionEnd : null
+  }
+}
+function restoreScrolls(s) {
+  if (!s) return
+  if (s.pre != null) {
+    const pre = document.querySelector('pre.json')
+    if (pre) pre.scrollTop = s.pre
+  }
+  if (s.ta != null) {
+    const ta = document.getElementById('json-editor')
+    if (ta) {
+      ta.scrollTop = s.ta
+      if (s.taSelStart != null) ta.setSelectionRange(s.taSelStart, s.taSelEnd ?? s.taSelStart)
+    }
+  }
+}
+
+function render({ preserveScroll = false } = {}) {
+  const saved = preserveScroll ? captureScrolls() : null
   if (state.phase === 'decoded') {
     root.innerHTML = renderDecoded(state)
     wireDecoded()
+    if (saved) restoreScrolls(saved)
     return
   }
   // empty or error — show input form
@@ -105,6 +145,9 @@ async function onDecode() {
     // sees the contents at a glance instead of a giant raw JSON.
     state.view = result.children.length > 0 ? 'tree' : 'json'
     state.selectedPath = []
+    state.draft = draftForSelection(result, [])
+    state.encodeResult = null
+    state.encodeError = null
     state.searchQuery = ''
     state.collapsedPaths = new Set()
     state.activeComponent = null
@@ -149,6 +192,9 @@ async function onDemo() {
     state.error = null
     state.view = result.children.length > 0 ? 'tree' : 'json'
     state.selectedPath = []
+    state.draft = draftForSelection(result, [])
+    state.encodeResult = null
+    state.encodeError = null
     state.searchQuery = ''
     state.collapsedPaths = new Set()
     state.activeComponent = null
@@ -169,7 +215,6 @@ function onClear() {
   state.input = ''
   state.result = null
   state.error = null
-  state.editing = false
   state.draft = ''
   state.encodeResult = null
   state.encodeError = null
@@ -332,38 +377,116 @@ function renderComponentsPanel(s) {
   `
 }
 
-// Wrap matches in <mark> spans so the JSON pane highlights every
-// occurrence of the active component, with the current one tagged
-// differently so we can scroll it into view.
-function buildHighlightedJsonHtml(jsonText, activeComponent, currentIdx) {
-  if (!activeComponent) return escapeHtml(jsonText)
-  const searchTarget = activeComponent.matchNames ?? activeComponent.name
-  const matches = findComponentMatches(jsonText, searchTarget, activeComponent.quality)
-  if (matches.length === 0) return escapeHtml(jsonText)
-  // Filter matches by kind: entities live in `"entities"` array, tiles
-  // in `"tiles"`. We don't want a tile click to highlight an entity
-  // that happens to have the same name. To filter, look at the surrounding
-  // text — quick heuristic: the closest enclosing array key.
-  const filtered = matches.filter(m => {
-    const back = jsonText.slice(0, m.start)
-    const lastEntities = back.lastIndexOf('"entities"')
-    const lastTiles = back.lastIndexOf('"tiles"')
-    if (activeComponent.kind === 'tile') return lastTiles > lastEntities
-    return lastEntities > lastTiles
-  })
-  if (filtered.length === 0) return escapeHtml(jsonText)
-  const safeIdx = ((currentIdx % filtered.length) + filtered.length) % filtered.length
-  let out = ''
-  let cursor = 0
-  filtered.forEach((m, i) => {
-    out += escapeHtml(jsonText.slice(cursor, m.start))
-    const cls = i === safeIdx ? 'bp-match bp-match-current' : 'bp-match'
-    const id = i === safeIdx ? ' id="bp-match-current"' : ''
-    out += `<mark class="${cls}"${id}>${escapeHtml(jsonText.slice(m.start, m.end))}</mark>`
-    cursor = m.end
-  })
-  out += escapeHtml(jsonText.slice(cursor))
-  return out
+// Returns the inner blueprint object the editor should read against,
+// parsed live from `state.draft`. Returns null when the draft does
+// not represent a single-blueprint object (e.g. a book selected) or
+// when parsing fails.
+function editorTargetBlueprint(state) {
+  let parsed
+  try { parsed = JSON.parse(state.draft) } catch { return null }
+  if (!parsed || typeof parsed !== 'object') return null
+  return parsed.blueprint || (Array.isArray(parsed.entities) ? parsed : null)
+}
+
+// Walk `state.draft` (parsed) and return every entity matching the
+// active component's name + quality (in document order — same as
+// JSON.stringify writes them, so index N here corresponds to the Nth
+// match in the textarea).
+function entitiesMatchingActive(state) {
+  const ac = state.activeComponent
+  if (!ac) return []
+  const inner = editorTargetBlueprint(state)
+  if (!inner) return []
+  const entities = Array.isArray(inner.entities) ? inner.entities : []
+  return entities.filter(e =>
+    e && e.name === ac.name && (e.quality || 'normal') === ac.quality
+  )
+}
+
+// Reads the `request_filters.<field>` flag on a requester-chest entity.
+// Defaults to false when the parent or field is absent.
+function readRequesterFlag(entity, field) {
+  return Boolean(entity?.request_filters?.[field])
+}
+
+// Mutates the entity in place: sets `request_filters.<field>` to `value`,
+// or deletes the field when `value` is false (keeps the JSON tidy and
+// matches Factorio's "default = absent" convention).
+function writeRequesterFlag(entity, field, value) {
+  if (!entity) return
+  if (!entity.request_filters || typeof entity.request_filters !== 'object') {
+    entity.request_filters = { sections: [{ index: 1 }] }
+  }
+  if (value) {
+    entity.request_filters[field] = true
+  } else {
+    delete entity.request_filters[field]
+  }
+}
+
+// Parse `state.draft`, find entities that match the active component
+// (filtered by name + quality), narrow by `editorScope`, hand them to
+// `mutator` for in-place edits, then serialise back to `state.draft`.
+// Silently no-ops if the draft is not a valid blueprint JSON.
+function applyStructuredEdit(mutator) {
+  const ac = state.activeComponent
+  if (!ac) return
+  let parsed
+  try { parsed = JSON.parse(state.draft) } catch { return }
+  const inner = parsed && (parsed.blueprint || parsed)
+  const entities = Array.isArray(inner?.entities) ? inner.entities : []
+  const matches = entities.filter(e =>
+    e && e.name === ac.name && (e.quality || 'normal') === ac.quality
+  )
+  if (matches.length === 0) return
+  const targets = state.editorScope === 'one'
+    ? [matches[((state.componentMatchIdx % matches.length) + matches.length) % matches.length]]
+    : matches
+  mutator(targets)
+  state.draft = JSON.stringify(parsed, null, 2)
+}
+
+// Renders the structured-edit panel for the currently active component.
+// Today only requester-chest is wired up; other entity types just don't
+// produce a panel.
+function renderEntityEditor(s) {
+  const ac = s.activeComponent
+  if (!ac) return ''
+  if (ac.name !== 'requester-chest') return ''
+
+  const matches = entitiesMatchingActive(s)
+  if (matches.length === 0) return ''
+  const total = matches.length
+  const idx = total > 0 ? ((s.componentMatchIdx % total) + total) % total : 0
+  // The "current" entity (used in 'one' scope and as the source of read values).
+  const current = matches[idx] || matches[0]
+
+  const reqBufs = readRequesterFlag(current, 'request_from_buffers')
+  const trashUnreq = readRequesterFlag(current, 'trash_not_requested')
+
+  return `
+    <div class="entity-editor">
+      <div class="entity-editor-header">${escapeHtml(t('editor.requester.title'))}</div>
+      <label class="entity-editor-row">
+        <input type="checkbox" data-edit-field="request_from_buffers" ${reqBufs ? 'checked' : ''} />
+        <span>${escapeHtml(t('editor.requester.requestFromBuffers'))}</span>
+      </label>
+      <label class="entity-editor-row">
+        <input type="checkbox" data-edit-field="trash_not_requested" ${trashUnreq ? 'checked' : ''} />
+        <span>${escapeHtml(t('editor.requester.trashNotRequested'))}</span>
+      </label>
+      <div class="entity-editor-scope">
+        <label>
+          <input type="radio" name="edit-scope" value="one" ${s.editorScope === 'one' ? 'checked' : ''} />
+          <span>${escapeHtml(t('editor.scope.one'))}</span>
+        </label>
+        <label>
+          <input type="radio" name="edit-scope" value="all" ${s.editorScope === 'all' ? 'checked' : ''} />
+          <span>${escapeHtml(t('editor.scope.all'))} (${total})</span>
+        </label>
+      </div>
+    </div>
+  `
 }
 
 // What we encode for the current selection. For book children we strip
@@ -389,8 +512,6 @@ function renderDecoded(s) {
   ].filter(Boolean).join(' · ')
 
   const showTree = r.children.length > 0
-  const node = getNodeAtPath(r, s.selectedPath)
-  const jsonText = JSON.stringify(node.json, null, 2)
 
   return `
     <div class="input-collapsed">
@@ -408,24 +529,17 @@ function renderDecoded(s) {
     ${s.view === 'json' || !showTree ? `
       ${renderBreadcrumb(s)}
       ${renderComponentsPanel(s)}
-      ${s.editing ? `
-        <textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>
-        <div class="actions">
-          ${s.busy
-            ? `<button id="btn-encode" class="primary" disabled><span class="spinner"></span>${escapeHtml(t('buttons.encoding'))}</button>`
-            : `<button id="btn-encode" class="primary">${escapeHtml(t('buttons.encode'))}</button>`}
-          <button id="btn-cancel" ${s.busy ? 'disabled' : ''}>${escapeHtml(t('buttons.cancel'))}</button>
-        </div>
-      ` : `
-        ${jsonText.length > JSON_RENDER_LIMIT
-          ? `<p class="json-too-large">${escapeHtml(t('json.tooLarge', { size: formatSize(jsonText.length) }))}</p>`
-          : `<pre class="json">${buildHighlightedJsonHtml(jsonText, s.activeComponent, s.componentMatchIdx)}</pre>`}
-        <div class="actions">
-          <button id="btn-edit-json" ${jsonText.length > JSON_RENDER_LIMIT ? 'disabled' : ''}>${escapeHtml(t('buttons.edit'))}</button>
-          <button id="btn-copy">${escapeHtml(t('buttons.copy'))}</button>
-          <button id="btn-download">${escapeHtml(t('buttons.download'))}</button>
-        </div>
-      `}
+      ${renderEntityEditor(s)}
+      ${s.draft.length > JSON_RENDER_LIMIT
+        ? `<p class="json-too-large">${escapeHtml(t('json.tooLarge', { size: formatSize(s.draft.length) }))}</p>`
+        : `<textarea id="json-editor" class="json-editor" spellcheck="false">${escapeHtml(s.draft)}</textarea>`}
+      <div class="actions">
+        ${s.busy
+          ? `<button id="btn-encode" class="primary" disabled><span class="spinner"></span>${escapeHtml(t('buttons.encoding'))}</button>`
+          : `<button id="btn-encode" class="primary"${s.draft.length > JSON_RENDER_LIMIT ? ' disabled' : ''}>${escapeHtml(t('buttons.encode'))}</button>`}
+        <button id="btn-copy">${escapeHtml(t('buttons.copy'))}</button>
+        <button id="btn-download">${escapeHtml(t('buttons.download'))}</button>
+      </div>
       ${s.encodeError ? `<p class="error">${escapeHtml(s.encodeError)}</p>` : ''}
       ${s.encodeResult !== null ? `
         <div class="result-panel">
@@ -519,7 +633,6 @@ function renderTree(children, selectedPath, query, collapsedPaths) {
 function wireDecoded() {
   document.getElementById('btn-edit')?.addEventListener('click', () => {
     state.phase = 'empty'
-    state.editing = false
     state.draft = ''
     state.encodeResult = null
     state.encodeError = null
@@ -529,8 +642,6 @@ function wireDecoded() {
   document.querySelectorAll('.tab').forEach(el => {
     el.addEventListener('click', () => {
       state.view = el.dataset.view
-      state.editing = false
-      state.draft = ''
       state.encodeResult = null
       state.encodeError = null
       render()
@@ -554,8 +665,7 @@ function wireDecoded() {
       const path = el.dataset.path.split(',').map(Number)
       state.selectedPath = path
       state.view = 'json'
-      state.editing = false
-      state.draft = ''
+      state.draft = draftForSelection(state.result, path)
       state.encodeResult = null
       state.encodeError = null
       state.activeComponent = null
@@ -567,11 +677,10 @@ function wireDecoded() {
     el.addEventListener('click', () => {
       const raw = el.dataset.path
       const path = raw === '' ? [] : raw.split(',').map(Number)
-      if (arraysEqual(state.selectedPath, path) && !state.editing) return
+      if (arraysEqual(state.selectedPath, path)) return
       state.selectedPath = path
       state.view = 'json'
-      state.editing = false
-      state.draft = ''
+      state.draft = draftForSelection(state.result, path)
       state.encodeResult = null
       state.encodeError = null
       state.activeComponent = null
@@ -591,28 +700,14 @@ function wireDecoded() {
   })
   document.getElementById('btn-copy')?.addEventListener('click', onCopy)
   document.getElementById('btn-download')?.addEventListener('click', onDownload)
-  // View → Edit
-  document.getElementById('btn-edit-json')?.addEventListener('click', () => {
-    state.editing = true
-    state.encodeResult = null
-    state.encodeError = null
-    const node = selectionForEncode(state.result, state.selectedPath)
-    state.draft = JSON.stringify(node, null, 2)
-    render()
-    document.getElementById('json-editor')?.focus()
-  })
-  // Edit → keep state.draft in sync as the user types
+  // The textarea is the user's editable copy of the current node's JSON.
+  // We keep `state.draft` in sync on every keystroke without re-rendering
+  // (would clobber focus and selection); the rest of the UI re-reads it
+  // on the next render — typically when the user clicks something else.
   document.getElementById('json-editor')?.addEventListener('input', e => {
     state.draft = e.target.value
   })
   document.getElementById('btn-encode')?.addEventListener('click', onEncode)
-  document.getElementById('btn-cancel')?.addEventListener('click', () => {
-    state.editing = false
-    state.draft = ''
-    state.encodeResult = null
-    state.encodeError = null
-    render()
-  })
   document.getElementById('btn-copy-result')?.addEventListener('click', onCopyResult)
   document.getElementById('btn-close-result')?.addEventListener('click', () => {
     state.encodeResult = null
@@ -641,48 +736,64 @@ function wireDecoded() {
         state.componentMatchIdx = 0
       }
       render()
-      // After re-render, jump to the current match. Behaviour depends
-      // on which pane the JSON lives in:
-      // - View mode: scroll the <mark id="bp-match-current"> into view.
-      // - Edit mode: select the matching range in the textarea so the
-      //   browser auto-scrolls to it and the user sees the highlight.
+      // After re-render, jump to the current match: select the range in
+      // the textarea so the browser highlights it; then scroll the line
+      // into view manually since browsers don't reliably auto-scroll a
+      // focused textarea to its selection.
       const searchTarget = matchNames ?? name
       requestAnimationFrame(() => {
-        if (state.editing) {
-          const ta = document.getElementById('json-editor')
-          if (!ta) return
-          const matches = findComponentMatches(state.draft, searchTarget, quality)
-          if (matches.length === 0) return
-          const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
-          const m = matches[idx]
-          ta.focus()
-          ta.setSelectionRange(m.start, m.end)
-          // Browsers don't reliably auto-scroll a focused textarea to its
-          // selection. Compute the line number ourselves and set scrollTop.
-          const before = ta.value.slice(0, m.start)
-          const lineNum = (before.match(/\n/g) || []).length
-          const cs = getComputedStyle(ta)
-          let lineHeight = parseFloat(cs.lineHeight)
-          if (!Number.isFinite(lineHeight)) {
-            lineHeight = parseFloat(cs.fontSize) * 1.5
-          }
-          const target = lineNum * lineHeight - ta.clientHeight / 2 + lineHeight / 2
-          ta.scrollTop = Math.max(0, target)
-        } else {
-          const cur = document.getElementById('bp-match-current')
-          if (cur) cur.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        const ta = document.getElementById('json-editor')
+        if (!ta) return
+        const matches = findComponentMatches(state.draft, searchTarget, quality)
+        if (matches.length === 0) return
+        const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+        const m = matches[idx]
+        ta.focus()
+        ta.setSelectionRange(m.start, m.end)
+        const before = ta.value.slice(0, m.start)
+        const lineNum = (before.match(/\n/g) || []).length
+        const cs = getComputedStyle(ta)
+        let lineHeight = parseFloat(cs.lineHeight)
+        if (!Number.isFinite(lineHeight)) {
+          lineHeight = parseFloat(cs.fontSize) * 1.5
         }
+        const target = lineNum * lineHeight - ta.clientHeight / 2 + lineHeight / 2
+        ta.scrollTop = Math.max(0, target)
       })
+    })
+  })
+  // Structured-edit checkboxes: change one or every matching entity's
+  // `request_filters.<field>` flag, then re-render with the JSON pre /
+  // textarea scroll position preserved (otherwise every keystroke jumps
+  // the user back to the top of the JSON, which is jarring).
+  document.querySelectorAll('.entity-editor input[type="checkbox"][data-edit-field]').forEach(el => {
+    el.addEventListener('change', e => {
+      if (!state.activeComponent) return
+      const field = e.target.dataset.editField
+      const value = !!e.target.checked
+      applyStructuredEdit(targets => {
+        for (const ent of targets) writeRequesterFlag(ent, field, value)
+      })
+      render({ preserveScroll: true })
+    })
+  })
+  // Scope radio: 'all' vs 'one'. Pure UI state — no JSON change yet,
+  // takes effect on the next checkbox change.
+  document.querySelectorAll('.entity-editor input[name="edit-scope"]').forEach(el => {
+    el.addEventListener('change', e => {
+      state.editorScope = e.target.value
+      render({ preserveScroll: true })
     })
   })
   wireIconFallback()
 }
 
+// Copy / Download grab whatever the user has in the textarea right now —
+// `state.draft`. It mirrors the on-screen content (including any in-progress
+// edits and any structured-edit changes), so what they save is what they see.
 async function onCopy() {
-  const node = getNodeAtPath(state.result, state.selectedPath)
-  const text = JSON.stringify(node.json, null, 2)
   try {
-    await navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(state.draft)
     const btn = document.getElementById('btn-copy')
     const old = btn.textContent
     btn.textContent = t('buttons.copied')
@@ -694,10 +805,9 @@ async function onCopy() {
 
 function onDownload() {
   const node = getNodeAtPath(state.result, state.selectedPath)
-  const text = JSON.stringify(node.json, null, 2)
   const baseName = node.label || node.kind || state.result.label || state.result.kind || 'blueprint'
   const safeName = String(baseName).replace(/[^a-zA-Zа-яА-ЯёЁ0-9._-]+/g, '_').slice(0, 64) || 'blueprint'
-  const blob = new Blob([text], { type: 'application/json' })
+  const blob = new Blob([state.draft], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
