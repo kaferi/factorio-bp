@@ -74,7 +74,9 @@ const messages = {
 
     'editor.scope.one': 'Only this one',
     'editor.scope.all': 'All of this type',
-    'editor.requester.title': 'Requester chest options',
+    'editor.chest.title': 'Chest options',
+    'editor.chest.bar': 'Limit slots',
+    'editor.chest.barHint': 'leave empty for no limit',
     'editor.requester.requestFromBuffers': 'Request from buffer chests',
     'editor.requester.trashNotRequested': 'Trash unrequested'
   },
@@ -147,7 +149,9 @@ const messages = {
 
     'editor.scope.one': 'Только этот',
     'editor.scope.all': 'Все того же типа',
-    'editor.requester.title': 'Опции сундука запроса',
+    'editor.chest.title': 'Опции сундука',
+    'editor.chest.bar': 'Ограничить слоты',
+    'editor.chest.barHint': 'пусто = без ограничения',
     'editor.requester.requestFromBuffers': 'Запрашивать из буферных сундуков',
     'editor.requester.trashNotRequested': 'Незапрошенное — в мусор'
   }

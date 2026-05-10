@@ -469,6 +469,18 @@ button.primary:disabled:hover { background: var(--accent); }
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
+.entity-editor-entnum {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .entity-editor-row {
   display: flex;
   align-items: center;
@@ -481,6 +493,26 @@ button.primary:disabled:hover { background: var(--accent); }
 .entity-editor-row input[type="checkbox"] {
   accent-color: var(--accent);
   cursor: pointer;
+}
+.entity-editor-row input.entity-editor-bar {
+  margin-left: auto;
+  width: 80px;
+  padding: 3px 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.entity-editor-row input.entity-editor-bar:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.entity-editor-row input.entity-editor-bar::placeholder {
+  color: var(--text-faint);
+  font-size: 11px;
 }
 .entity-editor-scope {
   display: flex;

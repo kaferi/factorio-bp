@@ -204,6 +204,38 @@ describe('findComponentMatches', () => {
     expect(sample.slice(matches[2].start, matches[2].end)).toMatch(/half-diagonal-rail/)
   })
 
+  it("reads the entity's own quality, not a nested signal quality", () => {
+    // Regression: entity #38 in the chesters fixture has
+    // control_behavior.circuit_condition.first_signal.quality = "rare",
+    // but the entity itself has no `quality` field (so it should be
+    // 'normal'). A naive regex over the object text would pick up the
+    // nested "rare" and mis-classify the entity, skipping it from the
+    // 'normal' search and breaking the cycle through matches.
+    const sample = JSON.stringify({
+      blueprint: {
+        entities: [
+          {
+            entity_number: 7,
+            name: 'requester-chest',
+            position: { x: 0, y: 0 }
+          },
+          {
+            entity_number: 38,
+            name: 'requester-chest',
+            position: { x: 1, y: 0 },
+            control_behavior: {
+              circuit_condition: {
+                first_signal: { name: 'wood', quality: 'rare' }
+              }
+            }
+          }
+        ]
+      }
+    }, null, 2)
+    const matches = findComponentMatches(sample, 'requester-chest', 'normal')
+    expect(matches).toHaveLength(2)  // both must be matched as normal
+  })
+
   it('does not match a literal "name": "X" that appears inside a string label', () => {
     const tricky = JSON.stringify({
       blueprint: {

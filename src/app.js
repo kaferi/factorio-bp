@@ -424,6 +424,77 @@ function writeRequesterFlag(entity, field, value) {
   }
 }
 
+// Reads the chest's `bar` field — index of the first slot blocked from
+// automation. Returns null when the chest has no limit set.
+function readChestBar(entity) {
+  if (!entity) return null
+  return typeof entity.bar === 'number' ? entity.bar : null
+}
+
+// Sets `entity.bar` to `value`, or deletes the field when value is null /
+// undefined / not a non-negative number (keeps "no limit" as absence).
+function writeChestBar(entity, value) {
+  if (!entity) return
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    delete entity.bar
+  } else {
+    entity.bar = Math.floor(value)
+  }
+}
+
+// Every chest entity that has a player-visible inventory and therefore
+// supports a bar limit. The structured editor uses this set to decide
+// whether to render the bar input.
+const CHEST_ENTITY_NAMES = new Set([
+  'wooden-chest',
+  'iron-chest',
+  'steel-chest',
+  'active-provider-chest',
+  'passive-provider-chest',
+  'storage-chest',
+  'requester-chest',
+  'buffer-chest'
+])
+
+function isChestEntity(name) {
+  return CHEST_ENTITY_NAMES.has(name)
+}
+
+// After any re-render that should keep the user focused on the same
+// "logical" match (component-tile click, structured edit), find the
+// position of `state.activeComponent`'s `componentMatchIdx`th
+// occurrence in the freshly-rendered textarea, select that range,
+// and scroll it into view. We can't preserve the previous selection
+// range across edits because the JSON length may have changed —
+// every byte after the edit is now at a different offset.
+function focusActiveMatchInTextarea() {
+  const ac = state.activeComponent
+  if (!ac) return
+  const ta = document.getElementById('json-editor')
+  if (!ta) return
+  const searchTarget = ac.matchNames ?? ac.name
+  const matches = findComponentMatches(state.draft, searchTarget, ac.quality)
+  if (matches.length === 0) return
+  const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
+  const m = matches[idx]
+  ta.focus()
+  ta.setSelectionRange(m.start, m.end)
+  // Scroll so the entity's opening `{` sits on the first visible row.
+  // Browsers don't reliably auto-scroll a focused textarea to its
+  // selection, so we compute the target line ourselves.
+  const anchor = typeof m.objStart === 'number' ? m.objStart : m.start
+  const before = ta.value.slice(0, anchor)
+  const lineNum = (before.match(/\n/g) || []).length
+  const cs = getComputedStyle(ta)
+  let lineHeight = parseFloat(cs.lineHeight)
+  if (!Number.isFinite(lineHeight)) {
+    lineHeight = parseFloat(cs.fontSize) * 1.5
+  }
+  // A tiny bit of headroom above the brace looks better than pinning it
+  // to the very top edge.
+  ta.scrollTop = Math.max(0, lineNum * lineHeight - 4)
+}
+
 // Parse `state.draft`, find entities that match the active component
 // (filtered by name + quality), narrow by `editorScope`, hand them to
 // `mutator` for in-place edits, then serialise back to `state.draft`.
@@ -447,34 +518,53 @@ function applyStructuredEdit(mutator) {
 }
 
 // Renders the structured-edit panel for the currently active component.
-// Today only requester-chest is wired up; other entity types just don't
-// produce a panel.
+// Shows for any chest entity (bar limit applies to all of them);
+// requester-specific options appear only for the requester-chest.
 function renderEntityEditor(s) {
   const ac = s.activeComponent
   if (!ac) return ''
-  if (ac.name !== 'requester-chest') return ''
+  if (!isChestEntity(ac.name)) return ''
 
   const matches = entitiesMatchingActive(s)
   if (matches.length === 0) return ''
   const total = matches.length
-  const idx = total > 0 ? ((s.componentMatchIdx % total) + total) % total : 0
-  // The "current" entity (used in 'one' scope and as the source of read values).
+  const idx = ((s.componentMatchIdx % total) + total) % total
   const current = matches[idx] || matches[0]
 
-  const reqBufs = readRequesterFlag(current, 'request_from_buffers')
-  const trashUnreq = readRequesterFlag(current, 'trash_not_requested')
+  const isRequester = ac.name === 'requester-chest'
+  const bar = readChestBar(current)
+  const reqBufs = isRequester ? readRequesterFlag(current, 'request_from_buffers') : false
+  const trashUnreq = isRequester ? readRequesterFlag(current, 'trash_not_requested') : false
+  // Show the entity_number of the source entity in the header so the user
+  // can confirm which one they're reading from / writing to in 'one' mode.
+  const entNum = (current && typeof current.entity_number === 'number') ? current.entity_number : null
+  const entNumLabel = entNum != null ? ` <span class="entity-editor-entnum">#${entNum}</span>` : ''
 
   return `
     <div class="entity-editor">
-      <div class="entity-editor-header">${escapeHtml(t('editor.requester.title'))}</div>
+      <div class="entity-editor-header">${escapeHtml(t('editor.chest.title'))}${entNumLabel}</div>
       <label class="entity-editor-row">
-        <input type="checkbox" data-edit-field="request_from_buffers" ${reqBufs ? 'checked' : ''} />
-        <span>${escapeHtml(t('editor.requester.requestFromBuffers'))}</span>
+        <span>${escapeHtml(t('editor.chest.bar'))}</span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          class="entity-editor-bar"
+          data-edit-bar="1"
+          value="${bar == null ? '' : bar}"
+          placeholder="${escapeHtml(t('editor.chest.barHint'))}"
+        />
       </label>
-      <label class="entity-editor-row">
-        <input type="checkbox" data-edit-field="trash_not_requested" ${trashUnreq ? 'checked' : ''} />
-        <span>${escapeHtml(t('editor.requester.trashNotRequested'))}</span>
-      </label>
+      ${isRequester ? `
+        <label class="entity-editor-row">
+          <input type="checkbox" data-edit-field="request_from_buffers" ${reqBufs ? 'checked' : ''} />
+          <span>${escapeHtml(t('editor.requester.requestFromBuffers'))}</span>
+        </label>
+        <label class="entity-editor-row">
+          <input type="checkbox" data-edit-field="trash_not_requested" ${trashUnreq ? 'checked' : ''} />
+          <span>${escapeHtml(t('editor.requester.trashNotRequested'))}</span>
+        </label>
+      ` : ''}
       <div class="entity-editor-scope">
         <label>
           <input type="radio" name="edit-scope" value="one" ${s.editorScope === 'one' ? 'checked' : ''} />
@@ -736,36 +826,13 @@ function wireDecoded() {
         state.componentMatchIdx = 0
       }
       render()
-      // After re-render, jump to the current match: select the range in
-      // the textarea so the browser highlights it; then scroll the line
-      // into view manually since browsers don't reliably auto-scroll a
-      // focused textarea to its selection.
-      const searchTarget = matchNames ?? name
-      requestAnimationFrame(() => {
-        const ta = document.getElementById('json-editor')
-        if (!ta) return
-        const matches = findComponentMatches(state.draft, searchTarget, quality)
-        if (matches.length === 0) return
-        const idx = ((state.componentMatchIdx % matches.length) + matches.length) % matches.length
-        const m = matches[idx]
-        ta.focus()
-        ta.setSelectionRange(m.start, m.end)
-        const before = ta.value.slice(0, m.start)
-        const lineNum = (before.match(/\n/g) || []).length
-        const cs = getComputedStyle(ta)
-        let lineHeight = parseFloat(cs.lineHeight)
-        if (!Number.isFinite(lineHeight)) {
-          lineHeight = parseFloat(cs.fontSize) * 1.5
-        }
-        const target = lineNum * lineHeight - ta.clientHeight / 2 + lineHeight / 2
-        ta.scrollTop = Math.max(0, target)
-      })
+      requestAnimationFrame(focusActiveMatchInTextarea)
     })
   })
-  // Structured-edit checkboxes: change one or every matching entity's
-  // `request_filters.<field>` flag, then re-render with the JSON pre /
-  // textarea scroll position preserved (otherwise every keystroke jumps
-  // the user back to the top of the JSON, which is jarring).
+  // Structured edits change `state.draft`'s length (added/removed
+  // fields shift every byte after the edit), so we can't preserve the
+  // previous selection range — we re-find the same logical match in
+  // the new text and re-focus to it.
   document.querySelectorAll('.entity-editor input[type="checkbox"][data-edit-field]').forEach(el => {
     el.addEventListener('change', e => {
       if (!state.activeComponent) return
@@ -774,11 +841,26 @@ function wireDecoded() {
       applyStructuredEdit(targets => {
         for (const ent of targets) writeRequesterFlag(ent, field, value)
       })
-      render({ preserveScroll: true })
+      render()
+      requestAnimationFrame(focusActiveMatchInTextarea)
     })
   })
-  // Scope radio: 'all' vs 'one'. Pure UI state — no JSON change yet,
-  // takes effect on the next checkbox change.
+  // Bar input: numeric slot limit. Empty / non-numeric → delete the
+  // field. Reacts on `change` (i.e. blur).
+  document.querySelectorAll('.entity-editor input[data-edit-bar="1"]').forEach(el => {
+    el.addEventListener('change', e => {
+      if (!state.activeComponent) return
+      const raw = e.target.value.trim()
+      const num = raw === '' ? null : Number(raw)
+      const value = Number.isFinite(num) && num >= 0 ? num : null
+      applyStructuredEdit(targets => {
+        for (const ent of targets) writeChestBar(ent, value)
+      })
+      render()
+      requestAnimationFrame(focusActiveMatchInTextarea)
+    })
+  })
+  // Scope radio: 'all' vs 'one'. Pure UI state, no JSON change.
   document.querySelectorAll('.entity-editor input[name="edit-scope"]').forEach(el => {
     el.addEventListener('change', e => {
       state.editorScope = e.target.value

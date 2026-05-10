@@ -221,10 +221,22 @@ export function findComponentMatches(jsonText, name, quality) {
       if (objStart < 0) continue
       const objEnd = walkBraceForward(jsonText, m.index, mask)
       if (objEnd < 0) continue
-      const objText = jsonText.slice(objStart, objEnd + 1)
-      const qualityMatch = /"quality":\s*"([^"]*)"/.exec(objText)
-      const actual = qualityMatch ? qualityMatch[1] : QUALITY_NORMAL
-      if (actual === wanted) matches.push({ start: m.index, end: m.index + m[0].length })
+      // Parse the enclosing object to read the entity's *own* quality
+      // field — a regex over the slice would falsely pick up nested
+      // qualities (e.g. circuit_condition.first_signal.quality).
+      let parsedEntity
+      try { parsedEntity = JSON.parse(jsonText.slice(objStart, objEnd + 1)) } catch { parsedEntity = null }
+      const actual = (parsedEntity && typeof parsedEntity.quality === 'string')
+        ? parsedEntity.quality
+        : QUALITY_NORMAL
+      if (actual === wanted) {
+        matches.push({
+          start: m.index,
+          end: m.index + m[0].length,
+          objStart,  // position of the opening `{` of the enclosing object — useful for scroll targeting
+          objEnd     // position of the matching `}` — included for symmetry
+        })
+      }
     }
   }
 
