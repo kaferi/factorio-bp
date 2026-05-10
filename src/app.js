@@ -25,7 +25,7 @@ const state = {
   collapsedPaths: new Set(),// set of path-keys ("0,1") of books the user collapsed
   activeComponent: null,    // { kind, name, quality } currently highlighted in JSON, or null
   componentMatchIdx: 0,     // index of the current match within state.activeComponent
-  editorScope: 'all'        // 'all' | 'one' — apply structured edits to all entities of this type+quality, or only the currently active match
+  editorScope: 'one'        // 'one' | 'all' — apply structured edits only to the currently active match, or to all entities of this type+quality
 }
 
 // Build the editor's draft text for the currently selected node:
@@ -328,7 +328,16 @@ function formatSize(bytes) {
 function renderComponentsPanel(s) {
   const node = getNodeAtPath(s.result, s.selectedPath)
   if (node.kind !== 'blueprint') return ''
-  const components = extractComponents(node.json)
+  // Prefer the live draft so structured edits (quality change, bar limit,
+  // requester flags) immediately reshape the components panel. Fall back
+  // to the original parsed result if the draft is mid-edit and not yet
+  // valid JSON.
+  let source = node.json
+  try {
+    const parsed = JSON.parse(s.draft)
+    if (parsed && typeof parsed === 'object') source = parsed
+  } catch {}
+  const components = extractComponents(source)
   if (components.length === 0) return ''
 
   const ac = s.activeComponent
@@ -465,6 +474,33 @@ function chestInventorySize(name) {
   return CHEST_INVENTORY_SIZES[name] ?? 48
 }
 
+// Five Factorio quality tiers, in display order. Used to render the
+// quality picker in the entity editor.
+const QUALITY_TIERS = ['normal', 'uncommon', 'rare', 'epic', 'legendary']
+
+// Sets `entity.quality` to the new tier, or deletes the field for
+// 'normal' (matches Factorio's "default = absent" convention).
+function writeEntityQuality(entity, value) {
+  if (!entity) return
+  if (typeof value !== 'string' || value === 'normal') {
+    delete entity.quality
+  } else {
+    entity.quality = value
+  }
+}
+
+function renderQualityPicker(currentQuality) {
+  const tiles = QUALITY_TIERS.map(q => {
+    const url = lookupIconUrl('quality', q)
+    const cls = q === currentQuality ? 'quality-pick-tile selected' : 'quality-pick-tile'
+    const inner = url
+      ? `<img class="bp-icon" src="${escapeHtml(url)}" alt="${escapeHtml(q)}" />`
+      : `<span>${escapeHtml(q.slice(0, 2))}</span>`
+    return `<button type="button" class="${cls}" data-quality-pick="${escapeHtml(q)}" title="${escapeHtml(q)}">${inner}</button>`
+  }).join('')
+  return `<div class="quality-picker">${tiles}</div>`
+}
+
 // Renders the in-game-style slot grid for the chest's bar limit.
 // Slots before `bar` are "usable" (orange), the slot at `bar` carries
 // the × marker, slots after it are "blocked" (dark). Click any slot to
@@ -541,12 +577,13 @@ function applyStructuredEdit(mutator) {
 }
 
 // Renders the structured-edit panel for the currently active component.
-// Shows for any chest entity (bar limit applies to all of them);
-// requester-specific options appear only for the requester-chest.
+// Shows the quality picker for every entity, the chest bar grid only
+// for chests, and the requester-specific checkboxes only for the
+// requester-chest. Hidden for tiles (Factorio tiles have no quality
+// or per-instance options blueprints care about).
 function renderEntityEditor(s) {
   const ac = s.activeComponent
-  if (!ac) return ''
-  if (!isChestEntity(ac.name)) return ''
+  if (!ac || ac.kind !== 'entity') return ''
 
   const matches = entitiesMatchingActive(s)
   if (matches.length === 0) return ''
@@ -554,28 +591,54 @@ function renderEntityEditor(s) {
   const idx = ((s.componentMatchIdx % totalEntities) + totalEntities) % totalEntities
   const current = matches[idx] || matches[0]
 
+  const isChest = isChestEntity(ac.name)
   const isRequester = ac.name === 'requester-chest'
-  const bar = readChestBar(current)
-  const reqBufs = isRequester ? readRequesterFlag(current, 'request_from_buffers') : false
-  const trashUnreq = isRequester ? readRequesterFlag(current, 'trash_not_requested') : false
+
   // Show the entity_number of the source entity in the header so the user
   // can confirm which one they're reading from / writing to in 'one' mode.
   const entNum = (current && typeof current.entity_number === 'number') ? current.entity_number : null
   const entNumLabel = entNum != null ? ` <span class="entity-editor-entnum">#${entNum}</span>` : ''
+  // Mini-tile of the active entity in front of the title — same shape
+  // and size as the components-panel tile the user clicked, with the
+  // quality badge in the corner so a quality change is visible here too.
+  const headerIconUrl = lookupIconUrl('item', ac.name) ?? lookupIconUrl('entity', ac.name)
+  const headerIconInner = headerIconUrl
+    ? `<img class="bp-icon" src="${escapeHtml(headerIconUrl)}" alt="${escapeHtml(ac.name)}" />`
+    : `<span class="comp-fallback">${escapeHtml(ac.name.slice(0, 4))}</span>`
+  const headerQUrl = ac.quality !== 'normal' ? lookupIconUrl('quality', ac.quality) : null
+  const headerQBadge = headerQUrl
+    ? `<img class="comp-quality" src="${escapeHtml(headerQUrl)}" alt="${escapeHtml(ac.quality)}" />`
+    : ''
+  const headerIcon = `
+    <span class="comp-tile entity-editor-tile">
+      <span class="comp-slot">${headerIconInner}</span>
+      ${headerQBadge}
+    </span>
+  `
 
-  const totalSlots = chestInventorySize(ac.name)
+  const bar = isChest ? readChestBar(current) : null
+  const reqBufs = isRequester ? readRequesterFlag(current, 'request_from_buffers') : false
+  const trashUnreq = isRequester ? readRequesterFlag(current, 'trash_not_requested') : false
+
+  const totalSlots = isChest ? chestInventorySize(ac.name) : 0
   const barStatus = bar == null
     ? escapeHtml(t('editor.chest.barNoLimit'))
     : `${bar} / ${totalSlots}`
 
   return `
     <div class="entity-editor">
-      <div class="entity-editor-header">${escapeHtml(t('editor.chest.title'))}${entNumLabel}</div>
-      <div class="entity-editor-bar-row">
-        <span>${escapeHtml(t('editor.chest.bar'))}</span>
-        <span class="entity-editor-bar-status">${barStatus}</span>
+      <div class="entity-editor-header">${headerIcon}${escapeHtml(t('editor.entity.title'))}${entNumLabel}</div>
+      <div class="entity-editor-row">
+        <span>${escapeHtml(t('editor.quality'))}</span>
+        ${renderQualityPicker(ac.quality)}
       </div>
-      ${renderChestBarGrid(ac.name, bar)}
+      ${isChest ? `
+        <div class="entity-editor-bar-row">
+          <span>${escapeHtml(t('editor.chest.bar'))}</span>
+          <span class="entity-editor-bar-status">${barStatus}</span>
+        </div>
+        ${renderChestBarGrid(ac.name, bar)}
+      ` : ''}
       ${isRequester ? `
         <label class="entity-editor-row">
           <input type="checkbox" data-edit-field="trash_not_requested" ${trashUnreq ? 'checked' : ''} />
@@ -862,6 +925,28 @@ function wireDecoded() {
       applyStructuredEdit(targets => {
         for (const ent of targets) writeRequesterFlag(ent, field, value)
       })
+      render()
+      requestAnimationFrame(focusActiveMatchInTextarea)
+    })
+  })
+  // Quality picker: switch the entity's quality tier. Edit applies via
+  // the same scope (one / all) as other structured edits, then we
+  // realign activeComponent.quality to the new tier so the focused
+  // textarea match follows the user's edit.
+  document.querySelectorAll('.quality-pick-tile[data-quality-pick]').forEach(el => {
+    el.addEventListener('click', e => {
+      const ac = state.activeComponent
+      if (!ac) return
+      const newQ = e.currentTarget.dataset.qualityPick
+      if (!newQ || newQ === ac.quality) return
+      applyStructuredEdit(targets => {
+        for (const ent of targets) writeEntityQuality(ent, newQ)
+      })
+      // Re-anchor the active component on the new quality, so the
+      // highlighted match in the textarea is the entity we just edited
+      // (or one of the just-edited batch in 'all' scope).
+      state.activeComponent = { ...ac, quality: newQ }
+      state.componentMatchIdx = 0
       render()
       requestAnimationFrame(focusActiveMatchInTextarea)
     })

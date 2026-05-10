@@ -74,6 +74,8 @@ const messages = {
 
     'editor.scope.one': 'Only this one',
     'editor.scope.all': 'All of this type',
+    'editor.entity.title': 'Entity options',
+    'editor.quality': 'Quality',
     'editor.chest.title': 'Chest options',
     'editor.chest.bar': 'Limit slots',
     'editor.chest.barHint': 'leave empty for no limit',
@@ -150,6 +152,8 @@ const messages = {
 
     'editor.scope.one': 'Только этот',
     'editor.scope.all': 'Все того же типа',
+    'editor.entity.title': 'Опции объекта',
+    'editor.quality': 'Качество',
     'editor.chest.title': 'Опции сундука',
     'editor.chest.bar': 'Ограничить слоты',
     'editor.chest.barHint': 'пусто = без ограничения',
